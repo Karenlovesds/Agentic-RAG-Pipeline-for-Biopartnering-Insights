@@ -57,6 +57,75 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+def generate_follow_up_questions(answer_text: str, original_question: str) -> list:
+    """Generate contextual follow-up questions based on the assistant's response."""
+    follow_up_questions = []
+    
+    # Extract key terms from the answer
+    answer_lower = answer_text.lower()
+    
+    # Drug-related follow-ups
+    if any(term in answer_lower for term in ['drug', 'therapeutic', 'medicine', 'mab', 'nib', 'cept']):
+        follow_up_questions.extend([
+            "What are the side effects of these drugs?",
+            "Which companies are developing similar drugs?",
+            "What is the mechanism of action of these drugs?",
+            "Are there any drug interactions to be aware of?"
+        ])
+    
+    # Clinical trial follow-ups
+    if any(term in answer_lower for term in ['trial', 'clinical', 'phase', 'study', 'nct']):
+        follow_up_questions.extend([
+            "What are the primary endpoints of these trials?",
+            "Which phase are these trials in?",
+            "What is the enrollment status?",
+            "Are there any safety concerns reported?"
+        ])
+    
+    # Company/partnership follow-ups
+    if any(term in answer_lower for term in ['company', 'partnership', 'collaboration', 'merger']):
+        follow_up_questions.extend([
+            "What other partnerships does this company have?",
+            "What is the company's pipeline strategy?",
+            "Are there any recent acquisitions?",
+            "What is the company's market position?"
+        ])
+    
+    # Indication/disease follow-ups
+    if any(term in answer_lower for term in ['cancer', 'oncology', 'tumor', 'metastatic', 'biomarker']):
+        follow_up_questions.extend([
+            "What biomarkers are associated with this indication?",
+            "What is the prevalence of this cancer type?",
+            "Are there any unmet medical needs?",
+            "What are the current treatment options?"
+        ])
+    
+    # FDA/regulatory follow-ups
+    if any(term in answer_lower for term in ['fda', 'approval', 'regulatory', 'label', 'indication']):
+        follow_up_questions.extend([
+            "What is the FDA approval timeline?",
+            "Are there any regulatory challenges?",
+            "What are the labeling requirements?",
+            "Are there any post-marketing commitments?"
+        ])
+    
+    # Generic follow-ups (always include some)
+    generic_questions = [
+        "Can you provide more details about this?",
+        "What are the latest developments?",
+        "How does this compare to competitors?",
+        "What are the commercial implications?"
+    ]
+    
+    # Add generic questions if we don't have enough specific ones
+    if len(follow_up_questions) < 4:
+        follow_up_questions.extend(generic_questions[:4-len(follow_up_questions)])
+    
+    # Remove duplicates and limit to 4 questions
+    unique_questions = list(dict.fromkeys(follow_up_questions))
+    return unique_questions[:4]
+
+
 def get_database_stats():
     """Get database statistics."""
     try:
@@ -145,7 +214,21 @@ def main():
 
 def show_dashboard():
     """Show dashboard page."""
-    st.header("📊 Dashboard")
+    # Dashboard header with time
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        st.header("📊 Dashboard")
+    
+    with col2:
+        # Real-time clock
+        current_time = datetime.now()
+        st.markdown(f"""
+        <div style="text-align: right; margin-top: 1rem;">
+            <h4 style="color: #666; margin: 0;">🕐 {current_time.strftime('%H:%M:%S')}</h4>
+            <p style="color: #888; margin: 0; font-size: 0.9em;">{current_time.strftime('%B %d, %Y')}</p>
+        </div>
+        """, unsafe_allow_html=True)
     
     # Get database stats
     stats = get_database_stats()
@@ -183,11 +266,76 @@ def show_dashboard():
             with col4:
                 st.metric("FDA Approved", len(df[df['FDA Approval'].notna() & (df['FDA Approval'] != '')]))
             
-            # Show first few rows
-            st.dataframe(df.head(10), use_container_width=True)
+            # Add filters
+            st.subheader("🔍 Filter Options")
             
-            if len(df) > 10:
-                st.info(f"Showing first 10 rows of {len(df)} total drugs. Visit the 'Results' page for full data.")
+            # Create filter columns (6 columns to accommodate all filters)
+            filter_col1, filter_col2, filter_col3, filter_col4, filter_col5, filter_col6 = st.columns(6)
+            
+            with filter_col1:
+                # Generic name filter
+                generic_filter = st.text_input("Filter by Generic Name", placeholder="e.g., pembrolizumab")
+                if generic_filter:
+                    df = df[df['Generic name'].str.contains(generic_filter, case=False, na=False)]
+            
+            with filter_col2:
+                # Brand name filter
+                brand_filter = st.text_input("Filter by Brand Name", placeholder="e.g., KEYTRUDA")
+                if brand_filter:
+                    df = df[df['Brand name'].str.contains(brand_filter, case=False, na=False)]
+            
+            with filter_col3:
+                # Drug class filter
+                if 'Drug Class' in df.columns:
+                    drug_classes = ['All'] + sorted(df['Drug Class'].dropna().unique().tolist())
+                    selected_class = st.selectbox("Filter by Drug Class", drug_classes)
+                    if selected_class != 'All':
+                        df = df[df['Drug Class'] == selected_class]
+            
+            with filter_col4:
+                # FDA approval filter
+                if 'FDA Approval' in df.columns:
+                    fda_options = ['All', 'Approved', 'Not Approved']
+                    fda_filter = st.selectbox("Filter by FDA Status", fda_options)
+                    if fda_filter == 'Approved':
+                        df = df[df['FDA Approval'].notna() & (df['FDA Approval'] != '')]
+                    elif fda_filter == 'Not Approved':
+                        df = df[df['FDA Approval'].isna() | (df['FDA Approval'] == '')]
+            
+            with filter_col5:
+                # Approved indication filter
+                if 'Indication Approved' in df.columns:
+                    indication_filter = st.text_input("Filter by Approved Indication", placeholder="e.g., cancer, diabetes")
+                    if indication_filter:
+                        df = df[df['Indication Approved'].str.contains(indication_filter, case=False, na=False)]
+            
+            with filter_col6:
+                # Current clinical trials filter
+                if 'Current Clinical Trials' in df.columns:
+                    trial_filter = st.text_input("Filter by Current Clinical Trial", placeholder="e.g., NCT12345678")
+                    if trial_filter:
+                        df = df[df['Current Clinical Trials'].str.contains(trial_filter, case=False, na=False)]
+            
+            # Show filtered results
+            st.subheader(f"💊 Biopharma Drugs ({len(df)} results)")
+            
+            if len(df) > 0:
+                # Show table with filters
+                st.dataframe(df, use_container_width=True)
+                
+                # Download filtered data
+                csv_data = df.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download Filtered Data",
+                    data=csv_data,
+                    file_name=f"filtered_biopharma_drugs_{len(df)}_results.csv",
+                    mime="text/csv"
+                )
+            else:
+                st.warning("No drugs match the current filters. Try adjusting your search criteria.")
+            
+            if len(df) < len(pd.read_csv("outputs/biopharma_drugs.csv")):
+                st.info(f"Showing {len(df)} filtered results out of {len(pd.read_csv('outputs/biopharma_drugs.csv'))} total drugs.")
             
         except Exception as e:
             st.error(f"Error loading CSV preview: {e}")
@@ -604,6 +752,32 @@ def show_rag_agent():
                 st.error(f"RAG error: {e}")
                 import traceback
                 st.error(traceback.format_exc())
+    
+    # Follow-up questions section (show after assistant responses)
+    if st.session_state.messages and st.session_state.messages[-1]["role"] == "assistant":
+        st.markdown("### 💡 Suggested Follow-up Questions")
+        
+        # Generate follow-up questions based on the last response
+        last_response = st.session_state.messages[-1]["content"]
+        if isinstance(last_response, dict):
+            answer_text = last_response.get("answer", "")
+        else:
+            answer_text = str(last_response)
+        
+        # Generate contextual follow-up questions
+        follow_up_questions = generate_follow_up_questions(answer_text, "")
+        
+        # Display follow-up questions as clickable buttons
+        cols = st.columns(2)
+        for i, question in enumerate(follow_up_questions[:4]):  # Show up to 4 questions
+            col_idx = i % 2
+            with cols[col_idx]:
+                if st.button(f"❓ {question}", key=f"followup_{i}", help="Click to ask this follow-up question"):
+                    # Add the follow-up question as a new user message
+                    st.session_state.messages.append({"role": "user", "content": question})
+                    st.rerun()
+        
+        st.markdown("---")
     
     # Feedback summary
     if st.session_state.feedback:

@@ -1,31 +1,31 @@
-Company,OfficialWebsite,OncologyPipelineURL
-Merck & Co.,https://www.merck.com/,https://www.merck.com/research/oncology/
-Bristol Myers Squibb,https://www.bms.com/,https://www.bms.com/research-and-development/our-medicines/oncology
-Roche/Genentech,https://www.gene.com/,https://www.gene.com/medicines/oncology
-AstraZeneca,https://www.astrazeneca.com/,https://www.astrazeneca.com/our-therapy-areas/oncology.html
-Pfizer,https://www.pfizer.com/,https://www.pfizer.com/our-science/oncology
-Novartis,https://www.novartis.com/,https://www.novartis.com/our-focus/oncology
-Gilead Sciences,https://www.gilead.com/,https://www.gilead.com/science-and-medicine/medicines/oncology
-Amgen,https://www.amgen.com/,https://www.amgen.com/oncology
-Regeneron Pharmaceuticals,https://www.regeneron.com/,https://www.regeneron.com/our-science/oncology
-BioNTech,https://www.biontech.com/,https://www.biontech.com/oncology
-BeiGene,https://www.beigene.com/,https://www.beigene.com/oncology
-Seagen,https://www.seagen.com/,https://www.seagen.com/oncology
-Incyte,https://www.incyte.com/,https://www.incyte.com/oncology
-Vertex Pharmaceuticals,https://www.vrtx.com/,https://www.vrtx.com/oncology
-Moderna,https://www.modernatx.com/,https://www.modernatx.com/oncology
-Johnson & Johnson,https://www.jnj.com/,https://www.jnj.com/oncology
-AbbVie,https://www.abbvie.com/,https://www.abbvie.com/oncology
-Eli Lilly,https://www.lilly.com/,https://www.lilly.com/oncology
-Sanofi,https://www.sanofi.com/,https://www.sanofi.com/oncology
-Bayer,https://www.bayer.com/,https://www.bayer.com/oncology
-Takeda Pharmaceutical,https://www.takeda.com/,https://www.takeda.com/oncology
-Daiichi Sankyo,https://www.daiichisankyo.com/,https://www.daiichisankyo.com/oncology
-Astellas Pharma,https://www.astellas.com/,https://www.astellas.com/oncology
-Boehringer Ingelheim,https://www.boehringer-ingelheim.com/,https://www.boehringer-ingelheim.com/oncology
-Alnylam Pharmaceuticals,https://www.alnylam.com/,https://www.alnylam.com/oncology
-Illumina,https://www.illumina.com/,https://www.illumina.com/oncology
-Merck KGaA,https://www.merckgroup.com/,https://www.merckgroup.com/oncology
-GlaxoSmithKline (GSK),https://www.gsk.com/,https://www.gsk.com/oncology
-CSL,https://www.csl.com/,https://www.csl.com/oncology
-Biogen,https://www.biogen.com/,https://www.biogen.com/oncology
+Company,OfficialWebsite,PipelineURL
+Johnson & Johnson,https://www.jnj.com/,https://investor.jnj.com/pipeline/development-pipeline/default.aspx
+Pfizer,https://www.pfizer.com/,https://www.pfizer.com/science/drug-product-pipeline
+Roche/Genentech,https://www.gene.com/,https://www.roche.com/solutions/pipeline
+Novartis,https://www.novartis.com/,https://www.novartis.com/research-development/novartis-pipeline
+Merck & Co.,https://www.merck.com/,https://www.merck.com/research/development-pipeline/
+AbbVie,https://www.abbvie.com/,https://www.abbvie.com/science/pipeline.html
+Sanofi,https://www.sanofi.com/,https://www.sanofi.com/en/our-science/our-pipeline
+Bristol Myers Squibb,https://www.bms.com/,https://www.bms.com/researchers-and-partners/our-pipeline.html
+AstraZeneca,https://www.astrazeneca.com/,https://www.astrazeneca.com/our-science/pipeline.html
+Eli Lilly,https://www.lilly.com/,https://www.lilly.com/science/research-development/pipeline
+GlaxoSmithKline (GSK),https://www.gsk.com/,https://www.gsk.com/en-gb/research-and-development/our-pipeline/
+Bayer,https://www.bayer.com/,https://www.bayer.com/en/pharma/development-pipeline
+Amgen,https://www.amgen.com/,https://www.amgen.com/science/clinical-trials/pipeline
+Takeda Pharmaceutical,https://www.takeda.com/,https://www.takeda.com/what-we-do/research-and-development/our-pipeline/
+Boehringer Ingelheim,https://www.boehringer-ingelheim.com/,https://www.boehringer-ingelheim.com/research-development/our-pipeline
+Moderna,https://www.modernatx.com/,https://www.modernatx.com/research/product-pipeline
+Regeneron Pharmaceuticals,https://www.regeneron.com/,https://www.regeneron.com/pipeline
+CSL,https://www.csl.com/,https://www.csl.com/research/pipeline
+Biogen,https://www.biogen.com/,https://www.biogen.com/science-innovation/pipeline.html
+Vertex Pharmaceuticals,https://www.vrtx.com/,https://www.vrtx.com/research-development/pipeline/
+Gilead Sciences,https://www.gilead.com/,https://www.gilead.com/research/pipeline
+Seagen,https://www.seagen.com/,https://www.seagen.com/pipeline
+BeiGene,https://www.beigene.com/,https://www.beigene.com/science/pipeline/
+Incyte,https://www.incyte.com/,https://www.incyte.com/our-science/pipeline
+Alnylam Pharmaceuticals,https://www.alnylam.com/,https://www.alnylam.com/our-science/pipeline/
+Daiichi Sankyo,https://www.daiichisankyo.com/,https://www.daiichisankyo.com/rd/pipeline/
+Merck KGaA,https://www.merckgroup.com/,https://www.merckgroup.com/en/research/pipeline.html
+BioNTech,https://www.biontech.com/,https://www.biontech.com/our-science/pipeline/
+Astellas Pharma,https://www.astellas.com/,https://www.astellas.com/en/research-development/pipeline
+Illumina,https://www.illumina.com/,https://www.illumina.com/science/technology/pipeline.html

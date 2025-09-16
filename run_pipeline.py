@@ -75,13 +75,14 @@ Examples:
     os.chdir(project_root)
     
     if args.command == 'run':
+        import asyncio
         from scripts.main.run_complete_pipeline import main as run_main
         sys.argv = ['run_complete_pipeline.py']
         if args.force:
             sys.argv.append('--force')
         if args.verbose:
             sys.argv.append('--verbose')
-        run_main()
+        asyncio.run(run_main())
         
     elif args.command == 'schedule':
         from scripts.main.run_scheduled_pipeline import main as schedule_main

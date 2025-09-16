@@ -576,7 +576,7 @@ class EntityExtractor:
         if re.match(r'^(Lung|Breast|PanTumor|Prostate|GI|Ovarian|Esophageal)\d+$', name):
             return False
         
-        # Filter out generic protein/antibody terms
+        # Filter out generic protein/antibody terms (but be more specific)
         generic_terms = {
             'ig', 'igg1', 'igg2', 'igg3', 'igg4', 'igm', 'iga', 'parp1', 'parp2', 'parp3',
             'tyk2', 'cdh6', 'ror1', 'her3', 'trop2', 'pcsk9', 'ov65'
@@ -589,15 +589,12 @@ class EntityExtractor:
         if not re.match(r'^[A-Za-z0-9\-\s\/\(\)]+$', name):
             return False
         
-        # Filter out common false positives
+        # Filter out common false positives (but be more specific)
         false_positives = {
             'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
             'is', 'was', 'are', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
             'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might',
-            'can', 'must', 'shall', 'accept', 'except', 'decline', 'drug', 'conjugate',
-            'small', 'molecule', 'therapeutic', 'protein', 'bispecific', 'antibody',
-            'dose', 'combination', 'acquired', 'noted', 'except', 'as', 'was', 'is',
-            'being', 'an', 'a', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for'
+            'can', 'must', 'shall', 'accept', 'except', 'decline'
         }
         
         if name.lower() in false_positives:
@@ -608,17 +605,41 @@ class EntityExtractor:
         if any(name.endswith(ending) for ending in incomplete_endings):
             return False
         
-        # Filter out descriptive phrases
+        # Filter out descriptive phrases (but be more specific)
         descriptive_phrases = ['drug conjugate', 'small molecule', 'therapeutic protein', 'bispecific antibody', 'peptide']
         if any(phrase in name.lower() for phrase in descriptive_phrases):
             return False
         
-        # Positive indicators for drug names
+        # More inclusive positive indicators for drug names
         drug_indicators = [
-            name.lower().endswith(('mab', 'nib', 'tinib', 'cept', 'zumab', 'ximab')),
+            # Monoclonal antibodies
+            name.lower().endswith(('mab', 'zumab', 'ximab')),
+            # Kinase inhibitors
+            name.lower().endswith(('nib', 'tinib')),
+            # Fusion proteins
+            name.lower().endswith('cept'),
+            # CAR-T therapies
+            name.lower().endswith('leucel'),
+            # ADCs (Antibody Drug Conjugates) - allow space-separated names
+            'deruxtecan' in name.lower(),
+            'vedotin' in name.lower(),
+            'tirumotecan' in name.lower(),
+            # Specific known drugs (expanded list)
+            name.lower() in {
+                'pembrolizumab', 'nivolumab', 'sotatercept', 'patritumab', 'sacituzumab',
+                'zilovertamab', 'nemtabrutinib', 'quavonlimab', 'clesrovimab', 'ifinatamab',
+                'bezlotoxumab', 'ipilimumab', 'relatlimab', 'enasicon', 'dasatinib',
+                'repotrectinib', 'elotuzumab', 'belatacept', 'fedratinib', 'luspatercept',
+                'abatacept', 'deucravacitinib', 'trastuzumab', 'atezolizumab', 'avelumab',
+                'blinatumomab', 'dupilumab', 'ruxolitinib', 'tisagenlecleucel', 'yescarta',
+                'kymriah', 'carvykti', 'abecma', 'breyanzi'
+            },
+            # Merck drug codes
             re.match(r'^mk-\d+', name.lower()),
+            # Roche drug codes
             re.match(r'^rg\d+', name.lower()),
-            len(name.split()) > 1 and any(word.endswith(('mab', 'nib', 'tinib', 'cept')) for word in name.split()),
+            # Allow drug names with spaces (like "Patritumab Deruxtecan")
+            len(name.split()) >= 2 and any(word.endswith(('mab', 'nib', 'tinib', 'cept', 'leucel')) for word in name.split()),
         ]
         
         return any(drug_indicators)

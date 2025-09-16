@@ -1,7 +1,7 @@
 Comprehensive Drug Collection Summary
 ========================================
 
-Pipeline Drugs Found: 15
+Pipeline Drugs Found: 120
 FDA Documents: 0
 Drugs.com Documents: 21
 Clinical Trials: 302
@@ -10,6 +10,10 @@ Success: True
 
 Pipeline Drugs by Company:
 ==============================
+
+Merck & Co.:
+------------
+    1. Trastuzumab
 
 Bristol Myers Squibb:
 ---------------------
@@ -22,9 +26,45 @@ Roche/Genentech:
     1. Atezolizumab
     2. Trastuzumab
 
+AstraZeneca:
+------------
+    1. Anselamimab
+    2. Bevacizumab
+    3. Datopotamab
+    4. Datopotamab Deruxtecan
+    5. Datroway (Datopotamab Deruxtecan) Tropion-Breast01
+    6. Domvanalimab
+    7. Gefurulimab
+    8. Lenvatinib
+    9. Monalizumab
+   10. Obinutuzumab
+   11. Oleclumab
+   12. Osimertinib
+   13. Pembrolizumab
+   14. Sonesitatug Vedotin
+   15. Sonesitatug Vedotin (Azd0901)
+   16. Sonesitatug Vedotin (Azd0901)
+ - Phase Ii
+   17. Sonesitatug Vedotin (Azd0901)
+ - Phase Ii
+
+
+Close
+   18. Sonesitatug Vedotin (Azd0901) Clarity-Gastric01
+   19. Tozorakimab
+   20. Volrustomig + Lenvatinib
+
 Pfizer:
 -------
     1. Avelumab
+
+Novartis:
+---------
+    1. Tisagenlecleucel
+
+Gilead Sciences:
+----------------
+    1. Yescarta
 
 Amgen:
 ------
@@ -32,43 +72,146 @@ Amgen:
 
 Regeneron Pharmaceuticals:
 --------------------------
-    1. Dupilumab
+    1. Aflibercept
+    2. Cemiplimab
+    3. Dupilumab
+    4. Fianlimab
+    5. Garetosmab
+    6. Itepekimab
+    7. Linvoseltamab
+    8. Mibavademab
+    9. Odronextamab
+   10. Pozelimab
+   11. Sarilumab
+   12. Trevogrumab
+   13. Ubamatamab
+
+BeiGene:
+--------
+    1. Acalabrutinib
+    2. Blinatumomab
+    3. Daratumumab
+    4. Durvalamab
+    5. Ibrutinib
+    6. Osimertinib
+    7. Tarlatamab
+    8. Tislelizumab
+    9. Zanidatamab
+   10. Zanubrutinib
 
 Incyte:
 -------
     1. Ruxolitinib
 
+Johnson & Johnson:
+------------------
+    1. Amivantamab
+    2. Autoleucel
+    3. Bleximenib
+    4. Carvykti
+    5. Cetrelimab
+    6. Daratumumab
+    7. Erdafitinib
+    8. Genmab
+    9. Golimumab
+   10. Guselkumab
+   11. Ibrutinib
+   12. Lazertinib
+   13. Nipocalimab
+   14. Posdinemab
+   15. Talquetamab
+   16. Teclistamab
+   17. Ustekinumab
+
+AbbVie:
+-------
+    1. Budigalimab
+    2. Concept
+    3. Elezanumab
+    4. Epcoritamab
+    5. Genmab
+    6. Livmoniplimab
+    7. Lutikizumab
+    8. Mirvetuximab
+    9. Pivekimab
+   10. Ravagalimab
+   11. Risankizumab
+   12. Telisotuzumab
+   13. Telisotuzumab Vedotin
+   14. Temab
+   15. Upadacitinib
+
+Sanofi:
+-------
+    1. Amlitelimab
+    2. Frexalimab
+    3. Itepekimab
+    4. Name
+Amlitelimab
+    5. Name
+Frexalimab
+    6. Name
+Itepekimab
+    7. Name
+Rilzabrutinib
+    8. Name
+Teplizumab
+    9. Name
+Tolebrutinib
+   10. Rilzabrutinib
+   11. Teplizumab
+   12. Tolebrutinib
+
 Merck KGaA:
 -----------
     1. Bezlotoxumab
     2. Clesrovimab
-    3. Nemtabrutinib
-    4. Pembrolizumab
-    5. Quavonlimab
-    6. Sotatercept
+    3. Ifinatamab Deruxtecan
+    4. Nemtabrutinib
+    5. Patritumab Deruxtecan
+    6. Pembrolizumab
+    7. Quavonlimab
+    8. Sacituzumab Tirumotecan
+    9. Sotatercept
+   10. Zilovertamab Vedotin
+
+GlaxoSmithKline (GSK):
+----------------------
+    1. Belantamab
+    2. Belimumab
+    3. Cobolimab
+    4. Depemokimab
+    5. Dostarlimab
+    6. Gsk2857914 Belantamab
+    7. Gsk3511294 † Depemokimab
+    8. Gsk4069889 (Tsr-022) † Cobolimab
+    9. Gsk4527223 (Al-001) † Latozinemab
+   10. Latozinemab
+   11. Mepolizumab
+   12. Momelotinib
 
 
 Summary by Company:
 ====================
-  Merck & Co.: 0 drugs
+  Merck & Co.: 1 drugs
   Bristol Myers Squibb: 3 drugs
   Roche/Genentech: 2 drugs
-  AstraZeneca: 0 drugs
+  AstraZeneca: 20 drugs
   Pfizer: 1 drugs
-  Novartis: 0 drugs
-  Gilead Sciences: 0 drugs
+  Novartis: 1 drugs
+  Gilead Sciences: 1 drugs
   Amgen: 1 drugs
-  Regeneron Pharmaceuticals: 1 drugs
+  Regeneron Pharmaceuticals: 13 drugs
   BioNTech: 0 drugs
-  BeiGene: 0 drugs
+  BeiGene: 10 drugs
   Seagen: 0 drugs
   Incyte: 1 drugs
   Vertex Pharmaceuticals: 0 drugs
   Moderna: 0 drugs
-  Johnson & Johnson: 0 drugs
-  AbbVie: 0 drugs
+  Johnson & Johnson: 17 drugs
+  AbbVie: 15 drugs
   Eli Lilly: 0 drugs
-  Sanofi: 0 drugs
+  Sanofi: 12 drugs
   Bayer: 0 drugs
   Takeda Pharmaceutical: 0 drugs
   Daiichi Sankyo: 0 drugs
@@ -76,7 +219,7 @@ Summary by Company:
   Boehringer Ingelheim: 0 drugs
   Alnylam Pharmaceuticals: 0 drugs
   Illumina: 0 drugs
-  Merck KGaA: 6 drugs
-  GlaxoSmithKline (GSK): 0 drugs
+  Merck KGaA: 10 drugs
+  GlaxoSmithKline (GSK): 12 drugs
   CSL: 0 drugs
   Biogen: 0 drugs
