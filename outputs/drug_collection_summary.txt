@@ -1,242 +1,82 @@
 Comprehensive Drug Collection Summary
 ========================================
 
-Pipeline Drugs Found: 218
+Pipeline Drugs Found: 15
 FDA Documents: 0
 Drugs.com Documents: 21
-Clinical Trials: 1046
-Total Documents: 1067
-Success: False
+Clinical Trials: 302
+Total Documents: 323
+Success: True
 
 Pipeline Drugs by Company:
 ==============================
 
-Merck & Co.:
-------------
-   1. Patritumab
-   2. NCT04938830
-   3. NCT05624554
-   4. NCT03976323
-   5. Sotatercept is
-   6. NCT04233879
-   7. OMAHA1
-   8. NCT06430801
-   9. NCT06203210
-  10. NCT06864169
-  11. Ovarian01
-  12. NCT06052059
-  13. NCT04945460
-  14. LSD1
-  15. Esophageal01
-  16. Clesrovimab is
-  17. NCT03834506
-  18. NCT05631093
-  19. NCT06698042
-  20. NCT06630286
-  21. NCT05933577
-  22. NCT06504394
-  23. NCT05947851
-  24. drug conjugate zilovertamab
-  25. NCT06177912
-  26. NCT06170788
-  27. NCT06041802
-  28. Nemtabrutinib is
-  29. NCT06456346
-  30. IgG1
-  31. Ifinatamab
-  32. Decline Accept
-  33. Sacituzumab
-  34. NCT06571045
-  35. NCT06664801
-  36. Nemtabrutinib was acquired
-  37. except as
-  38. NCT06136559
-  39. Lung02
-  40. NCT06307431
-  41. NCT06637423
-  42. NCT06393374
-  43. NCT06459180
-  44. patritumab deruxtecan
-  45. NCT06780085
-  46. NCT06630299
-  47. NCT06172478
-  48. NCT06356311
-  49. Lung01
-  50. NCT05052996
-  51. GI01
-  52. NCT06623422
-  53. NCT04624204
-  54. NCT04736706
-  55. NCT04233216
-  56. subcutaneous pembrolizumab
-  57. NCT05952856
-  58. NCT05612035
-  59. NCT06312137
-  60. Prostate01
-  61. NCT04575597
-  62. Ifinatamab deruxtecan
-  63. NCT06132958
-  64. NCT05722015
-  65. NCT04223778
-  66. NCT04776252
-  67. PARP1
-  68. NCT06079879
-  69. PCSK9
-  70. ov65
-  71. NCT06925737
-  72. NCT06956235
-  73. Sotatercept is an
-  74. NCT05270668
-  75. NCT05696080
-  76. bezlotoxumab
-  77. NCT06428409
-  78. drug conjugate sacituzumab
-  79. drug conjugate ifinatamab
-  80. NCT06305767
-  81. HER3
-  82. Sotatercept
-  83. Ifinatamab deruxtecan is
-  84. NCT06660654
-  85. PanTumor02
-  86. Therapeutic protein zilovertamab
-  87. NCT07013487
-  88. Small molecule nemtabrutinib
-  89. NCT05766501
-  90. Quavonlimab
-  91. NCT05464420
-  92. NCT04619004
-  93. Quavonlimab is
-  94. quavonlimab
-  95. Small molecule patritumab
-  96. Nemtabrutinib was
-  97. Clesrovimab is a
-  98. NCT06305754
-  99. NCT06644781
-  100. CDH6
-  101. NCT04938817
-  102. Sacituzumab tirumotecan
-  103. Pembrolizumab
-  104. NCT04944992
-  105. NCT06465186
-  106. NCT06596694
-  107. NCT06482112
-  108. NCT03765918
-  109. zilovertamab vedotin
-  110. Quavonlimab is being
-  111. patritumab
-  112. Quavonlimab is an
-  113. NCT06788912
-  114. NCT05406401
-  115. NCT06077760
-  116. NCT05633992
-  117. NCT04380636
-  118. NCT04728893
-  119. drug conjugate quavonlimab
-  120. NCT03834493
-  121. NCT05587712
-  122. Pembrolizumab is
-  123. NCT06008756
-  124. Zilovertamab vedotin was
-  125. NCT05425732
-  126. NCT05139017
-  127. except as noted
-  128. NCT05420961
-  129. NCT05952869
-  130. PARP2
-  131. NCT03162536
-  132. NCT06428396
-  133. NCT05144841
-  134. NCT04223791
-  135. Peptide ifinatamab
-  136. NCT04896008
-  137. Zilovertamab
-  138. Nemtabrutinib
-  139. NCT05705349
-  140. NCT07033494
-  141. NCT06492291
-  142. NCT04191096
-  143. Bispecific antibody nemtabrutinib
-  144. NCT06045507
-  145. Zilovertamab vedotin
-  146. nemtabrutinib
-  147. NCT06330064
-  148. NCT05877547
-  149. NCT05526716
-  150. Clesrovimab
-  151. NCT05393037
-  152. Sotatercept was
-  153. NCT06824467
-  154. Peptide ifinatamab deruxtecan
-  155. NCT06351631
-  156. NCT05630755
-  157. NCT06997497
-  158. pembrolizumab
-  159. drug conjugate patritumab
-  160. NCT06099782
-  161. NCT04767373
-  162. NCT06136624
-  163. NCT06667700
-  164. NCT06664502
-  165. NCT06717347
-  166. PanTumor01
-  167. Sotatercept was acquired
-  168. sacituzumab tirumotecan
-  169. NCT07060807
-  170. NCT03976362
-  171. NCT05458297
-  172. NCT06450366
-  173. sacituzumab
-  174. Pembrolizumab is a
-  175. sotatercept
-  176. NCT06651281
-  177. TROP2
-  178. Patritumab deruxtecan
-  179. NCT06345729
-  180. NCT06161025
-  181. Patritumab deruxtecan is
-  182. NCT06074588
-  183. NCT03066778
-  184. Sacituzumab tirumotecan is
-  185. NCT04564547
-  186. NCT06422143
-  187. PARP3
-  188. NCT06136650
-  189. ROR1
-  190. NCT05116189
-  191. Breast04
-  192. NCT06721156
-  193. clesrovimab
-  194. zilovertamab
-  195. Nemtabrutinib is an
-  196. ifinatamab deruxtecan
-  197. NCT03867084
-  198. ifinatamab
-  199. dose combination quavonlimab
-  200. NCT05569954
-  201. Zilovertamab vedotin is
-  202. NCT06312176
-
 Bristol Myers Squibb:
 ---------------------
-   1. ipilimumab
-   2. nivolumab and
-   3. relatlimab
-   4. enasicon
-   5. dasatinib
-   6. repotrectinib
-   7. nivolumab and relatlimab
-   8. elotuzumab
-   9. belatacept
-  10. TYK2
-  11. fedratinib
-  12. luspatercept
-  13. abatacept
-  14. deucravacitinib
-  15. nivolumab and hyaluronidase
-  16. nivolumab
+    1. Elotuzumab
+    2. Ipilimumab
+    3. Nivolumab
+
+Roche/Genentech:
+----------------
+    1. Atezolizumab
+    2. Trastuzumab
+
+Pfizer:
+-------
+    1. Avelumab
+
+Amgen:
+------
+    1. Blinatumomab
+
+Regeneron Pharmaceuticals:
+--------------------------
+    1. Dupilumab
+
+Incyte:
+-------
+    1. Ruxolitinib
+
+Merck KGaA:
+-----------
+    1. Bezlotoxumab
+    2. Clesrovimab
+    3. Nemtabrutinib
+    4. Pembrolizumab
+    5. Quavonlimab
+    6. Sotatercept
 
 
 Summary by Company:
 ====================
-  Merck & Co.: 202 drugs
-  Bristol Myers Squibb: 16 drugs
+  Merck & Co.: 0 drugs
+  Bristol Myers Squibb: 3 drugs
+  Roche/Genentech: 2 drugs
+  AstraZeneca: 0 drugs
+  Pfizer: 1 drugs
+  Novartis: 0 drugs
+  Gilead Sciences: 0 drugs
+  Amgen: 1 drugs
+  Regeneron Pharmaceuticals: 1 drugs
+  BioNTech: 0 drugs
+  BeiGene: 0 drugs
+  Seagen: 0 drugs
+  Incyte: 1 drugs
+  Vertex Pharmaceuticals: 0 drugs
+  Moderna: 0 drugs
+  Johnson & Johnson: 0 drugs
+  AbbVie: 0 drugs
+  Eli Lilly: 0 drugs
+  Sanofi: 0 drugs
+  Bayer: 0 drugs
+  Takeda Pharmaceutical: 0 drugs
+  Daiichi Sankyo: 0 drugs
+  Astellas Pharma: 0 drugs
+  Boehringer Ingelheim: 0 drugs
+  Alnylam Pharmaceuticals: 0 drugs
+  Illumina: 0 drugs
+  Merck KGaA: 6 drugs
+  GlaxoSmithKline (GSK): 0 drugs
+  CSL: 0 drugs
+  Biogen: 0 drugs
