@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     # API Keys
     openai_api_key: str = Field(..., env="OPENAI_API_KEY")
     
+    # Model provider settings
+    model_provider: str = Field("openai", env="MODEL_PROVIDER")
+    chat_model: str = Field("gpt-4o-mini", env="CHAT_MODEL")
+    embed_model: str = Field("text-embedding-3-small", env="EMBED_MODEL")
+    ollama_host: str = Field("http://localhost:11434", env="OLLAMA_HOST")
+    
     # Database settings
     database_url: str = Field("sqlite:///./biopartnering_insights.db", env="DATABASE_URL")
     chroma_persist_directory: str = Field("./chroma_db", env="CHROMA_PERSIST_DIRECTORY")
@@ -28,14 +34,14 @@ class Settings(BaseSettings):
     drugs_com_base_url: str = "https://www.drugs.com"
     fda_base_url: str = "https://www.fda.gov"
     
-    # Top 30 pharma/biotech companies to focus on
+    # Top 30 oncology-focused pharma/biotech companies
     target_companies: List[str] = [
-        "Pfizer", "Johnson & Johnson", "Roche", "Novartis", "Merck",
-        "AbbVie", "Bristol Myers Squibb", "GlaxoSmithKline", "Sanofi", "AstraZeneca",
-        "Takeda", "Gilead Sciences", "Amgen", "Moderna", "Regeneron",
-        "Biogen", "Vertex Pharmaceuticals", "Illumina", "Gilead", "Incyte",
-        "Seagen", "BioNTech", "Alnylam Pharmaceuticals", "Exact Sciences", "Mylan",
-        "Teva Pharmaceutical", "Bayer", "Boehringer Ingelheim", "Daiichi Sankyo", "Eli Lilly"
+        "Merck & Co.", "Bristol Myers Squibb", "Roche/Genentech", "AstraZeneca", "Pfizer",
+        "Novartis", "Gilead Sciences", "Amgen", "Regeneron Pharmaceuticals", "BioNTech",
+        "BeiGene", "Seagen", "Incyte", "Vertex Pharmaceuticals", "Moderna",
+        "Johnson & Johnson", "AbbVie", "Eli Lilly", "Sanofi", "Bayer",
+        "Takeda Pharmaceutical", "Daiichi Sankyo", "Astellas Pharma", "Boehringer Ingelheim", "Alnylam Pharmaceuticals",
+        "Illumina", "Merck KGaA", "GlaxoSmithKline (GSK)", "CSL", "Biogen"
     ]
     
     # Evaluation settings

@@ -42,7 +42,7 @@ class BaseCollector(ABC):
     def _save_document(self, data: CollectedData) -> bool:
         """Save collected document to database."""
         try:
-            db = next(get_db())
+            db = get_db()
             
             # Check if document already exists
             existing_doc = db.query(Document).filter(

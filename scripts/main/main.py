@@ -6,12 +6,13 @@ from pathlib import Path
 from loguru import logger
 import streamlit as st
 
-# Add src to path
-sys.path.append(str(Path(__file__).parent / "src"))
+# Add project root to path
+project_root = Path(__file__).parent.parent.parent
+sys.path.append(str(project_root))
 
 from src.models.database import create_tables
 from src.data_collection.orchestrator import DataCollectionOrchestrator
-from config import settings
+from config.config import settings
 
 
 def setup_logging():
@@ -42,8 +43,9 @@ async def run_data_collection():
     # Initialize orchestrator
     orchestrator = DataCollectionOrchestrator()
     
-    # Run data collection
-    results = await orchestrator.run_full_collection()
+    # Run data collection for all sources
+    sources = ["clinical_trials", "fda", "company_websites", "drugs"]
+    results = await orchestrator.run_full_collection(sources)
     
     logger.info(f"Data collection completed: {results}")
     return results

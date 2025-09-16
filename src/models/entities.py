@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey, JSON, Float
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from pydantic import BaseModel, Field
@@ -45,6 +45,9 @@ class Drug(Base):
     rxnorm_id = Column(String(50), nullable=True)
     drugbank_id = Column(String(50), nullable=True)
     unii = Column(String(50), nullable=True)
+    
+    # Clinical trial information
+    nct_codes = Column(JSON, nullable=True)  # List of NCT codes associated with this drug
     
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -177,6 +180,27 @@ class Document(Base):
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class RAGCache(Base):
+    """Cache for RAG retrieval results to improve performance."""
+    __tablename__ = "rag_cache"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    query_hash = Column(String(64), nullable=False, unique=True, index=True)  # SHA-256 of query
+    query_text = Column(Text, nullable=False)
+    retrieved_doc_ids = Column(JSON, nullable=False)  # List of document IDs
+    answer = Column(Text, nullable=False)
+    citations = Column(JSON, nullable=False)  # List of citation objects
+    confidence_score = Column(Float, nullable=True)
+    
+    # Metadata
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_accessed = Column(DateTime, default=datetime.utcnow)
+    access_count = Column(Integer, default=0)
+    
+    # Cache expiration (in hours)
+    expires_at = Column(DateTime, nullable=True)
 
 
 # Pydantic models for API responses

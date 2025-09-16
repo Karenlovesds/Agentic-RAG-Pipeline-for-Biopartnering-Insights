@@ -4,7 +4,7 @@ import json
 from typing import List, Dict, Any, Optional
 from loguru import logger
 from .base_collector import BaseCollector, CollectedData
-from config import settings, get_target_companies
+from config.config import settings, get_target_companies
 
 
 class ClinicalTrialsCollector(BaseCollector):
@@ -17,27 +17,67 @@ class ClinicalTrialsCollector(BaseCollector):
         """Collect clinical trials data."""
         collected_data = []
         
-        # Default query parameters
+        # Default query parameters focused on oncology
         default_params = {
             "format": "json",
-            "query.cond": "cancer",
-            "query.phase": "PHASE2 OR PHASE3",
-            "query.overallStatus": "RECRUITING OR ACTIVE_NOT_RECRUITING",
-            "pageSize": 100
+            "pageSize": 50,
+            "query.cond": "cancer"
         }
         
-        params = {**default_params, **(query_params or {})}
+        # Use provided params or defaults
+        if query_params:
+            params = {**default_params, **query_params}
+        else:
+            params = default_params
         
         try:
-            # Collect data for each target company (CSV-backed with fallback)
-            for company in get_target_companies():
-                company_params = {**params, "query.spons": company}
-                data = await self._collect_company_trials(company_params)
+            # If no sponsor filter in params, collect general data
+            if "query.spons" not in params:
+                data = await self._collect_company_trials(params)
                 collected_data.extend(data)
+            else:
+                # Collect data for each target company (CSV-backed with fallback)
+                for company in get_target_companies()[:5]:  # Limit to first 5 companies for testing
+                    company_params = {**params, "query.spons": company}
+                    data = await self._collect_company_trials(company_params)
+                    collected_data.extend(data)
                 
         except Exception as e:
             logger.error(f"Error collecting clinical trials data: {e}")
         
+        return collected_data
+
+    async def collect_company_drug_trials(self, company_drug_mapping: Dict[str, List[str]]) -> List[CollectedData]:
+        """Collect clinical trials data using company and drug name combinations."""
+        collected_data = []
+        
+        logger.info(f"Starting targeted clinical trials collection for {len(company_drug_mapping)} companies")
+        
+        for company, drugs in company_drug_mapping.items():
+            logger.info(f"Collecting trials for {company} with {len(drugs)} drugs")
+            
+            for drug in drugs:
+                try:
+                    # Search with drug name only (simpler query to avoid 400 errors)
+                    params = {
+                        "format": "json",
+                        "pageSize": 20,
+                        "query.cond": f"{drug}"
+                    }
+                    
+                    data = await self._collect_company_trials(params)
+                    collected_data.extend(data)
+                    
+                    if data:
+                        logger.info(f"✅ Found {len(data)} trials for {company} + {drug}")
+                    else:
+                        logger.info(f"ℹ️ No trials found for {company} + {drug}")
+                        
+                except Exception as e:
+                    logger.error(f"Error collecting trials for {company} + {drug}: {e}")
+                    continue
+        
+        logger.info(f"🎉 Completed targeted clinical trials collection: {len(collected_data)} total documents")
         return collected_data
     
     async def _collect_company_trials(self, params: Dict[str, Any]) -> List[CollectedData]:

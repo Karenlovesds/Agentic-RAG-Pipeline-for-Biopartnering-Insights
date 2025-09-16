@@ -62,6 +62,7 @@ def export_basic(db: Session, out_path: str) -> str:
 
 
 DRUG_TABLE_HEADERS = [
+    "Company name",
     "Generic name",
     "Brand name",
     "FDA Approval",
@@ -104,6 +105,7 @@ def export_drug_table(db: Session, out_path: str) -> str:
                 ]
                 trial_summaries.append(" | ".join([p for p in parts if p]))
             writer.writerow([
+                d.company.name if d.company else "",
                 d.generic_name,
                 d.brand_name or "",
                 fda_approval,

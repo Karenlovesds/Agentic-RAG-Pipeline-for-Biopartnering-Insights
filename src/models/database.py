@@ -10,7 +10,7 @@ import os
 # Add the project root to the Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
-from config import settings
+from config.config import settings
 from .entities import Base
 
 

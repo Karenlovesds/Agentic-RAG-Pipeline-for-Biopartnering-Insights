@@ -1,261 +1,277 @@
 # 🧬 Agentic RAG Pipeline for Biopartnering Insights
 
-An intelligent pipeline that automatically generates potential ideas for biopartnering and provides professional, reference-backed insights on biomarkers and drugs. This system combines automated data collection, structured knowledge curation, and AI-powered querying into one streamlined workflow.
+An intelligent, production-ready pipeline that automatically generates potential ideas for biopartnering and provides professional, reference-backed insights on biomarkers and drugs. This system combines automated data collection, structured knowledge curation, AI-powered querying, and intelligent monitoring into one streamlined workflow.
 
 ## 🎯 Overview
 
-This pipeline automatically collects, processes, and analyzes biomedical data from trusted sources to provide actionable biopartnering insights. It's designed to help researchers, BD teams, and leadership make faster, more confident decisions with full transparency and auditability.
+This pipeline automatically collects, processes, and analyzes biomedical data from trusted sources to provide actionable biopartnering insights. It's designed to help researchers, BD teams, and leadership make faster, more confident decisions with full transparency and auditability. The system is production-ready with automated monitoring, change detection, and scheduled updates.
 
 ## ✨ Key Features
 
-- **Automated Data Collection**: Crawls ClinicalTrials.gov, Drugs.com, and FDA sources
-- **Structured Knowledge Base**: Normalized entities with proper relationships and versioning
-- **AI-Powered RAG Agent**: Contextual answers with citations and confidence scores
-- **Interactive UI**: Streamlit-based interface for querying and analysis
-- **Standardized Outputs**: CSV exports for pipeline reviews and BD targeting
-- **Evaluation Framework**: RAGAS metrics and manual validation for reliability
+- **🤖 Intelligent Drug Extraction**: Automatically extracts drug names and indications from company pipeline pages
+- **🔄 Automated Data Collection**: Crawls ClinicalTrials.gov, Drugs.com, FDA, and company websites
+- **📊 Structured Knowledge Base**: Normalized entities with proper relationships and versioning
+- **🧠 AI-Powered RAG Agent**: Dual-provider support (OpenAI/Ollama) with contextual answers and citations
+- **🎨 Interactive UI**: Streamlit-based interface with real-time monitoring and analytics
+- **📈 Standardized Outputs**: CSV exports for pipeline reviews and BD targeting
+- **🔍 Evaluation Framework**: RAGAS metrics and manual validation for reliability
+- **⚡ Production Monitoring**: Website change detection and automated pipeline updates
+- **📧 Smart Notifications**: Email alerts for changes and scheduled runs
+- **🚀 Production Deployment**: Systemd service, cron jobs, and comprehensive logging
+- **💾 Intelligent Caching**: RAG response caching for improved performance
+- **🔄 Change Detection**: Intelligent skipping of unchanged data for efficiency
 
-## 🏗️ Architecture
+## 🗂️ Project Structure
+
+The project is organized into logical directories for better maintainability:
 
 ```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Data Sources  │    │  Knowledge Base  │    │   RAG Agent     │
-│                 │    │                  │    │                 │
-│ • ClinicalTrials│───▶│ • Companies      │───▶│ • Pydantic AI   │
-│ • Drugs.com     │    │ • Drugs          │    │ • Citations     │
-│ • FDA           │    │ • Targets        │    │ • Confidence    │
-└─────────────────┘    │ • Indications    │    └─────────────────┘
-                       │ • Clinical Trials│
-                       └──────────────────┘
-                                │
-                                ▼
-                       ┌─────────────────┐
-                       │   Streamlit UI  │
-                       │                 │
-                       │ • Chat Interface│
-                       │ • Filters       │
-                       │ • Evidence Pane │
-                       └─────────────────┘
+📁 scripts/                    # Executable scripts
+├── 📁 main/                   # Main pipeline scripts
+│   ├── run_complete_pipeline.py    # Complete pipeline with change detection
+│   ├── run_scheduled_pipeline.py   # Scheduled pipeline runner
+│   ├── streamlit_app.py            # Web interface
+│   └── main.py                     # Original main script
+├── 📁 data_collection/        # Data collection scripts  
+│   ├── extract_fda_indications.py
+│   ├── populate_clinical_trials.py
+│   └── run_*_extraction.py
+├── 📁 deployment/             # Deployment configurations
+│   ├── biopartnering-pipeline.service
+│   ├── deploy.sh
+│   └── run_pipeline_cron.sh
+└── 📁 maintenance/            # Maintenance utilities
+    └── setup_environment.sh
+
+📁 src/                        # Source code modules
+├── 📁 data_collection/        # Data collection logic
+├── 📁 processing/             # Data processing
+├── 📁 rag/                    # RAG system
+├── 📁 models/                 # Data models
+├── 📁 monitoring/             # Monitoring modules
+└── 📁 evaluation/             # Evaluation framework
+
+📁 config/                     # Configuration files
+📁 docs/                       # Documentation
+📁 monitoring/                 # Logs and monitoring
+📁 outputs/                    # Generated outputs
+📁 data/                       # Input data files
+📁 tests/                      # Test files
 ```
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-
 - Python 3.8+
-- OpenAI API key
-- Git
+- Conda or virtual environment
+- API keys for OpenAI and FDA
 
 ### Installation
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/your-username/Agentic-RAG-Pipeline-for-Biopartnering-Insights.git
-   cd Agentic-RAG-Pipeline-for-Biopartnering-Insights
-   ```
+#### Option 1: Quick Setup (Recommended)
+```bash
+# Clone the repository
+git clone <repository-url>
+cd Agentic-RAG-Pipeline-for-Biopartnering-Insights
 
-2. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
+# Quick setup
+make setup
 
-3. **Set up environment variables**
-   ```bash
-   cp .env.example .env
-   # Edit .env and add your OpenAI API key
-   ```
+# Edit environment variables
+cp .env.example .env
+# Edit .env with your API keys
+```
 
-4. **Initialize the database**
-   ```bash
-   python main.py
-   ```
+#### Option 2: Manual Setup
+```bash
+# Clone the repository
+git clone <repository-url>
+cd Agentic-RAG-Pipeline-for-Biopartnering-Insights
 
-5. **Launch the Streamlit UI**
-   ```bash
-   streamlit run streamlit_app.py
-   ```
+# Create conda environment
+conda create -n pipe_env python=3.11 -y
+conda activate pipe_env
 
-## 📊 Data Collection
+# Install dependencies
+pip install -r requirements.txt
 
-The pipeline collects data from three primary sources:
+# Set up environment variables
+cp .env.example .env
+# Edit .env with your API keys
+```
 
-### ClinicalTrials.gov
-- **Focus**: Ongoing, completed, and planned clinical trials
-- **Scope**: Top 30 pharma/biotech companies
-- **Data**: Trial phases, status, endpoints, study populations
+## 🚀 Running the Pipeline
 
-### Drugs.com
-- **Focus**: Drug profiles and mechanisms of action
-- **Scope**: Cancer drugs and targeted therapies
-- **Data**: Generic/brand names, drug classes, indications, safety
+### Main Entry Point (Recommended)
+```bash
+# Show all available commands
+python run_pipeline.py --help
 
-### FDA
-- **Focus**: Regulatory approvals and safety communications
-- **Scope**: Official labeling and approval information
-- **Data**: Approval status, dates, indications, safety alerts
+# Run complete pipeline once
+python run_pipeline.py run
 
-## 🗄️ Knowledge Base Structure
+# Run with force refresh
+python run_pipeline.py run --force
 
-The system maintains a structured database with the following entities:
+# Start web interface
+python run_pipeline.py web
 
-- **Companies**: Pharma/biotech companies with metadata
-- **Drugs**: Normalized drug information with standardized IDs
-- **Targets**: Proteins, genes, and pathways with HGNC symbols
-- **Indications**: Disease conditions with NCIT cancer terms
-- **Clinical Trials**: Trial information with relationships
-- **Documents**: Source documents with provenance tracking
+# Run scheduled pipeline
+python run_pipeline.py schedule
 
-## 🤖 RAG Agent Capabilities
+# Run individual components
+python run_pipeline.py data-collect
+python run_pipeline.py process
+python run_pipeline.py export
+```
 
-The AI agent can handle queries such as:
+### Using Make Commands
+```bash
+# Show all available commands
+make help
 
-- "Which companies should I pitch for TROP2?"
-- "Is VEOZAH FDA approved?"
-- "What are the potential needs for metastatic prostate cancer?"
-- "Show me all Phase 3 trials for HER2+ breast cancer"
+# Run complete pipeline
+make run
 
-Each response includes:
-- **Answer**: Contextual, synthesized response
-- **Citations**: Source documents and URLs
-- **Confidence Score**: 0-1 confidence rating
-- **Evidence**: Relevant passages and metadata
+# Run with force refresh
+make run-force
 
-## 📈 Standardized Output
+# Start web interface
+make web
 
-The pipeline generates CSV files with normalized fields:
+# Run individual components
+make data-collect
+make process
+make export
 
-| Field | Description |
-|-------|-------------|
-| Company Name | Standardized company name |
-| Generic Name | Drug generic name |
-| Brand Name | FDA-approved brand name |
-| FDA Approval Status | Y/N approval status |
-| Approval Date | FDA approval date |
-| Drug Class | Therapeutic class |
-| Target(s) | Molecular targets |
-| Mechanism of Action | Drug mechanism |
-| Indications | FDA-approved indications |
-| Clinical Trials | Formatted trial information |
+# Development commands
+make test
+make clean
+make logs
+make status
+```
 
-## 🔍 User Interface
+### Individual Scripts
+```bash
+# Run complete pipeline with change detection
+python scripts/main/run_complete_pipeline.py
 
-The Streamlit interface provides:
+# Run scheduled pipeline
+python scripts/main/run_scheduled_pipeline.py
 
-- **Dashboard**: Overview metrics and recent activity
-- **Data Collection**: Manual trigger and monitoring
-- **Knowledge Base**: Search and browse collected data
-- **RAG Agent**: Chat interface for AI queries
-- **Settings**: Configuration and company tracking
-
-## 📊 Evaluation & Validation
-
-### Manual Evaluation
-- Gold-standard evaluation table with 50-100 representative queries
-- Covers FDA approvals, biomarker-specific trials, and company pipelines
-
-### Automated Evaluation
-- **RAGAS Metrics**: Faithfulness, context precision, citation quality
-- **Freshness Checks**: Median data lag ≤14 days
-- **Continuous Monitoring**: Automated accuracy tracking
+# Start web interface
+python scripts/main/streamlit_app.py
+```
 
 ## 🔧 Configuration
 
-Key configuration options in `config.py`:
+### Environment Variables (`.env`)
+```bash
+# Database
+DATABASE_URL=sqlite:///biopartnering_insights.db
 
-```python
-# Target companies to track
-target_companies = [
-    "Pfizer", "Johnson & Johnson", "Roche", "Novartis", "Merck",
-    # ... 25 more companies
-]
+# API Keys
+FDA_API_KEY=your_fda_api_key
+OPENAI_API_KEY=your_openai_api_key
 
-# Data collection settings
-max_concurrent_requests = 5
-request_delay = 1.0
-refresh_schedule = "weekly"
+# Logging
+LOG_LEVEL=INFO
+LOG_FILE=logs/pipeline.log
 ```
 
-## 📁 Project Structure
+## 📊 Data Flow
 
-```
-├── src/
-│   ├── models/           # Database models and entities
-│   ├── data_collection/  # Data collection modules
-│   ├── processing/       # Data processing pipeline
-│   ├── rag/             # RAG agent implementation
-│   └── evaluation/      # Evaluation framework
-├── data/                # Raw collected data
-├── outputs/             # Generated CSV files
-├── logs/                # Application logs
-├── main.py              # Main application entry point
-├── streamlit_app.py     # Streamlit UI
-├── config.py            # Configuration settings
-└── requirements.txt     # Python dependencies
-```
+1. **Data Collection** → Raw data from multiple sources
+2. **Processing** → Entity extraction and linking
+3. **Storage** → SQLite database
+4. **Export** → CSV files for analysis
+5. **Web Interface** → Interactive exploration
 
-## 🚀 Usage Examples
+## 🚀 Production Deployment
 
-### Data Collection
-```python
-from src.data_collection.orchestrator import DataCollectionOrchestrator
+### Systemd Service
+```bash
+# Install service
+make service-install
 
-orchestrator = DataCollectionOrchestrator()
-results = await orchestrator.run_full_collection()
+# Start service
+make service-start
+
+# Check status
+make service-status
 ```
 
-### RAG Queries
-```python
-from src.rag.agent import BiopartneringAgent
-
-agent = BiopartneringAgent()
-response = await agent.query("Which companies are developing TROP2 inhibitors?")
+### Cron Job
+```bash
+# Add to crontab (runs every 6 hours)
+0 */6 * * * /path/to/scripts/deployment/run_pipeline_cron.sh
 ```
 
-### CSV Export
-```python
-from src.processing.csv_generator import CSVGenerator
+## 📈 Monitoring
 
-generator = CSVGenerator()
-generator.export_standardized_data("outputs/biopartnering_data.csv")
+- **Pipeline State**: `monitoring/pipeline_state.json`
+- **Logs**: `monitoring/logs/`
+- **Database**: `biopartnering_insights.db`
+- **Outputs**: `outputs/`
+
+## 🧪 Testing
+
+```bash
+# Run all tests
+make test
+
+# Or directly
+python -m pytest tests/
 ```
 
-## 🔄 Data Refresh
+## 📝 Documentation
 
-The system supports multiple refresh schedules:
+- **README.md**: This file
+- **PROJECT_STRUCTURE.md**: Detailed project structure
+- **PRD_Agentic_RAG_Pipeline_Biopartnering_Insights.md**: Product requirements
+- **API Documentation**: `docs/api/`
+- **User Guide**: `docs/user_guide/`
 
-- **Weekly**: Automatic refresh every Sunday
-- **Daily**: Daily incremental updates
-- **Manual**: On-demand collection via UI
+## 🔄 Change Detection & Efficiency
+
+The pipeline includes intelligent change detection that:
+- **Skips unchanged data**: Only processes new or modified data
+- **Tracks state**: Maintains pipeline state in `monitoring/pipeline_state.json`
+- **Forces refresh**: Use `--force` flag to refresh all data
+- **Time-based refresh**: Automatically refreshes every 24 hours
+
+## 🛠️ Development
+
+### Adding New Data Sources
+1. Create collector in `src/data_collection/`
+2. Add to orchestrator in `src/data_collection/orchestrator.py`
+3. Update configuration in `config/config.py`
+
+### Adding New Processing Steps
+1. Add processing logic in `src/processing/`
+2. Update pipeline in `scripts/main/run_complete_pipeline.py`
+3. Add tests in `tests/`
 
 ## 🤝 Contributing
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+2. Create a feature branch
+3. Make your changes
+4. Add tests
+5. Submit a pull request
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the LICENSE file for details.
 
-## 🙏 Acknowledgments
+## 🆘 Support
 
-- ClinicalTrials.gov for providing clinical trial data
-- Drugs.com for drug information
-- FDA for regulatory data
-- OpenAI for AI capabilities
-- The biomedical research community
-
-## 📞 Support
-
-For questions, issues, or contributions, please:
-
-1. Check the [Issues](https://github.com/your-username/Agentic-RAG-Pipeline-for-Biopartnering-Insights/issues) page
-2. Create a new issue with detailed information
-3. Contact the development team
+For questions or issues:
+1. Check the documentation in `docs/`
+2. Review the logs in `monitoring/logs/`
+3. Check the pipeline status with `make status`
+4. Open an issue on GitHub
 
 ---
 
-**Built with ❤️ for the biomedical research community**
-A Pipeline + Agentic RAG system that automatically generates potential ideas for biopartnering and provides professional, reference-backed insights on biomarkers and drugs. This system will combine automated data collection, structured knowledge curation, and AI-powered querying into one streamlined workflow.
+**Built with ❤️ for the biotech community**

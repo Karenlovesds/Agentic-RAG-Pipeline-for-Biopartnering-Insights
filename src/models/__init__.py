@@ -6,7 +6,8 @@ from .entities import (
     Target,
     Indication,
     ClinicalTrial,
-    Document
+    Document,
+    RAGCache
 )
 
 from .database import (
@@ -22,6 +23,7 @@ __all__ = [
     "Indication",
     "ClinicalTrial",
     "Document",
+    "RAGCache",
     "Base",
     "engine",
     "get_session"

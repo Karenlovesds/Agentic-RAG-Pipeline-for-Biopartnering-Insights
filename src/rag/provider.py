@@ -64,7 +64,7 @@ class OllamaProvider(BaseLLMProvider):
             url = f"{self.oai_url}/chat/completions"
             headers = {"Authorization": "Bearer ollama"}
             payload = {"model": model, "messages": messages, "temperature": temperature}
-            r = requests.post(url, headers=headers, json=payload, timeout=60)
+            r = requests.post(url, headers=headers, json=payload, timeout=120)
             if r.status_code == 200:
                 data = r.json()
                 content = data["choices"][0]["message"]["content"]
@@ -99,7 +99,7 @@ class OllamaProvider(BaseLLMProvider):
             url = f"{self.oai_url}/embeddings"
             headers = {"Authorization": "Bearer ollama"}
             payload = {"model": mdl, "input": texts}
-            r = requests.post(url, headers=headers, json=payload, timeout=60)
+            r = requests.post(url, headers=headers, json=payload, timeout=120)
             if r.status_code == 200:
                 data = r.json()
                 return [d["embedding"] for d in data["data"]]

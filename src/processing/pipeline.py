@@ -12,7 +12,7 @@ from typing import List
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from config import get_target_companies
+from config.config import get_target_companies
 from src.models.entities import Company, Drug, ClinicalTrial, Document
 
 

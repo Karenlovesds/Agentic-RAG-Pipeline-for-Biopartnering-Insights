@@ -1,0 +1,30 @@
+[Unit]
+Description=Biopartnering Insights Pipeline Scheduler
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=mingyuezheng
+Group=mingyuezheng
+WorkingDirectory=/Users/mingyuezheng/Agentic-RAG-Pipeline-for-Biopartnering-Insights
+Environment=PATH=/Users/mingyuezheng/miniconda3/envs/pipe_env/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/Users/mingyuezheng/miniconda3/envs/pipe_env/bin/python run_scheduled_pipeline.py --interval 6 --max-runtime 2
+Restart=always
+RestartSec=60
+StandardOutput=journal
+StandardError=journal
+
+# Resource limits
+MemoryMax=4G
+CPUQuota=200%
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/Users/mingyuezheng/Agentic-RAG-Pipeline-for-Biopartnering-Insights
+
+[Install]
+WantedBy=multi-user.target
