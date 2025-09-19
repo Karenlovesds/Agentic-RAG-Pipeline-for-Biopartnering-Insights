@@ -23,6 +23,7 @@ from src.models.entities import Drug, Document, ClinicalTrial, Company
 from src.data_collection.orchestrator import DataCollectionOrchestrator
 from src.processing.pipeline import run_processing
 from src.processing.csv_export import export_drug_table, export_basic
+from sqlalchemy.orm import Session
 
 
 class PipelineStateManager:
@@ -42,6 +43,7 @@ class PipelineStateManager:
                 logger.warning(f"Could not load state file: {e}")
         return {
             "last_run": None,
+            "maintenance": {},
             "data_collection": {},
             "processing": {},
             "exports": {},
@@ -167,6 +169,30 @@ class CompletePipeline:
             self.state_manager.update_step_state("processing", False, {"error": str(e)})
             raise
     
+    async def run_maintenance(self) -> Dict[str, Any]:
+        """Run database maintenance with change detection."""
+        logger.info("=== MAINTENANCE PHASE ===")
+        
+        # Check if we need to run maintenance
+        if not self.state_manager.has_data_changed("maintenance"):
+            logger.info("⏭️  Skipping maintenance - no changes detected")
+            return {"skipped": True}
+        
+        try:
+            # Run maintenance
+            from scripts.maintenance.maintenance_orchestrator import run_maintenance
+            results = await run_maintenance()
+            logger.info(f"✅ Maintenance completed: {results['successful_tasks']}/{results['total_tasks']} tasks successful")
+            
+            # Update state
+            self.state_manager.update_step_state("maintenance", True, results)
+            return results
+            
+        except Exception as e:
+            logger.error(f"❌ Maintenance failed: {e}")
+            self.state_manager.update_step_state("maintenance", False, {"error": str(e)})
+            raise
+    
     def run_exports(self) -> Dict[str, str]:
         """Run CSV exports with change detection."""
         logger.info("=== EXPORT PHASE ===")
@@ -193,10 +219,16 @@ class CompletePipeline:
                 export_basic(db, basic_file)
                 logger.info(f"✅ Basic data exported: {basic_file}")
                 
+                # Generate drug collection summary
+                summary_file = "outputs/drug_collection_summary.txt"
+                self._generate_drug_summary(db, summary_file)
+                logger.info(f"✅ Drug collection summary generated: {summary_file}")
+                
                 # Update state
                 results = {
                     "drug_table": drug_file,
                     "basic_export": basic_file,
+                    "drug_summary": summary_file,
                     "timestamp": datetime.now().isoformat()
                 }
                 self.state_manager.update_step_state("exports", True, results)
@@ -210,6 +242,156 @@ class CompletePipeline:
             self.state_manager.update_step_state("exports", False, {"error": str(e)})
             raise
     
+    def _generate_drug_summary(self, db: Session, output_path: str):
+        """Generate drug collection summary with improved validation."""
+        try:
+            # Get all companies
+            companies = db.query(Company).all()
+            company_drugs = {}
+            
+            for company in companies:
+                # Get drugs for this company
+                drugs = db.query(Drug).filter(Drug.company_id == company.id).all()
+                
+                # Filter drugs using improved validation
+                valid_drugs = []
+                for drug in drugs:
+                    if self._is_valid_drug_name(drug.generic_name):
+                        valid_drugs.append(drug.generic_name)
+                
+                company_drugs[company.name] = valid_drugs
+            
+            # Get total counts
+            total_drugs = sum(len(drugs) for drugs in company_drugs.values())
+            total_trials = db.query(ClinicalTrial).count()
+            total_documents = db.query(Document).count()
+            
+            # Count documents by type
+            fda_docs = db.query(Document).filter(Document.source_type.like('%fda%')).count()
+            clinical_trial_docs = db.query(Document).filter(Document.source_type.like('%clinical%')).count()
+            company_docs = db.query(Document).filter(Document.source_type.like('%company%')).count()
+            
+            # Generate summary
+            summary_lines = [
+                "Comprehensive Drug Collection Summary",
+                "========================================",
+                "",
+                f"Pipeline Drugs Found: {total_drugs}",
+                f"FDA Documents: {fda_docs}",
+                f"Clinical Trial Documents: {clinical_trial_docs}",
+                f"Company Documents: {company_docs}",
+                f"Clinical Trials (Extracted): {total_trials}",
+                f"Total Documents: {total_documents}",
+                f"Success: True",
+                "",
+                "Pipeline Drugs by Company:",
+                "==============================",
+                ""
+            ]
+            
+            for company_name, drugs in company_drugs.items():
+                if drugs:
+                    summary_lines.append(f"{company_name}:")
+                    summary_lines.append("-" * (len(company_name) + 1))
+                    for i, drug in enumerate(sorted(drugs), 1):
+                        summary_lines.append(f"  {i:3d}. {drug}")
+                    summary_lines.append("")
+            
+            # Add summary by company
+            summary_lines.extend([
+                "",
+                "Summary by Company:",
+                "===================="
+            ])
+            
+            for company_name, drugs in company_drugs.items():
+                summary_lines.append(f"  {company_name}: {len(drugs)} drugs")
+            
+            # Write to file
+            with open(output_path, 'w') as f:
+                f.write('\n'.join(summary_lines))
+                
+        except Exception as e:
+            logger.error(f"Failed to generate drug summary: {e}")
+            raise
+    
+    def _is_valid_drug_name(self, name: str) -> bool:
+        """Improved drug name validation."""
+        import re
+        
+        if not name or len(name) < 3 or len(name) > 100:
+            return False
+        
+        # Filter out clinical trial IDs
+        if re.match(r'^NCT\d+', name.upper()):
+            return False
+        
+        # Filter out study names and codes
+        if re.match(r'^(Lung|Breast|PanTumor|Prostate|GI|Ovarian|Esophageal)\d+$', name):
+            return False
+        
+        # Filter out generic protein/antibody terms
+        generic_terms = {
+            'ig', 'igg1', 'igg2', 'igg3', 'igg4', 'igm', 'iga', 'parp1', 'parp2', 'parp3',
+            'tyk2', 'cdh6', 'ror1', 'her3', 'trop2', 'pcsk9', 'ov65'
+        }
+        
+        if name.lower() in generic_terms:
+            return False
+        
+        # Filter out common false positives
+        false_positives = {
+            'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
+            'is', 'was', 'are', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
+            'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might',
+            'can', 'must', 'shall', 'accept', 'except', 'decline', 'drug', 'conjugate',
+            'small', 'molecule', 'therapeutic', 'protein', 'bispecific', 'antibody',
+            'dose', 'combination', 'acquired', 'noted', 'except', 'as', 'was', 'is',
+            'being', 'an', 'a', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for'
+        }
+        
+        if name.lower() in false_positives:
+            return False
+        
+        # Filter out incomplete drug names (ending with common words)
+        incomplete_endings = [' is', ' was', ' being', ' an', ' a', ' the', ' and', ' or']
+        if any(name.endswith(ending) for ending in incomplete_endings):
+            return False
+        
+        # Filter out descriptive phrases
+        descriptive_phrases = ['drug conjugate', 'small molecule', 'therapeutic protein', 'bispecific antibody', 'peptide']
+        if any(phrase in name.lower() for phrase in descriptive_phrases):
+            return False
+        
+        # Positive indicators for actual drug names
+        drug_indicators = [
+            # Monoclonal antibodies
+            name.lower().endswith(('mab', 'zumab', 'ximab')),
+            # Kinase inhibitors
+            name.lower().endswith(('nib', 'tinib')),
+            # Fusion proteins
+            name.lower().endswith('cept'),
+            # PARP inhibitors
+            name.lower().endswith('parib'),
+            # CDK inhibitors
+            name.lower().endswith('ciclib'),
+            # Specific known drugs
+            name.lower() in {
+                'pembrolizumab', 'nivolumab', 'sotatercept', 'patritumab', 'sacituzumab',
+                'zilovertamab', 'nemtabrutinib', 'quavonlimab', 'clesrovimab', 'ifinatamab',
+                'bezlotoxumab', 'ipilimumab', 'relatlimab', 'enasicon', 'dasatinib',
+                'repotrectinib', 'elotuzumab', 'belatacept', 'fedratinib', 'luspatercept',
+                'abatacept', 'deucravacitinib', 'olaparib', 'palbociclib', 'rucaparib',
+                'niraparib', 'talazoparib', 'ribociclib', 'abemaciclib'
+            },
+            # Merck drug codes
+            re.match(r'^mk-\d+', name.lower()),
+            # Roche drug codes
+            re.match(r'^rg\d+', name.lower()),
+        ]
+        
+        return any(drug_indicators)
+
     def get_pipeline_summary(self) -> Dict[str, Any]:
         """Get summary of pipeline execution."""
         db = get_db()
@@ -236,6 +418,7 @@ class CompletePipeline:
             # Clear state to force all steps
             self.state_manager.state = {
                 "last_run": None,
+                "maintenance": {},
                 "data_collection": {},
                 "processing": {},
                 "exports": {},
@@ -250,18 +433,23 @@ class CompletePipeline:
         }
         
         try:
-            # Step 1: Data Collection
-            logger.info("📊 Step 1: Data Collection")
+            # Step 1: Maintenance
+            logger.info("🔧 Step 1: Database Maintenance")
+            maintenance_results = await self.run_maintenance()
+            results["steps"]["maintenance"] = maintenance_results
+            
+            # Step 2: Data Collection
+            logger.info("📊 Step 2: Data Collection")
             collection_results = await self.run_data_collection()
             results["steps"]["data_collection"] = collection_results
             
-            # Step 2: Processing
-            logger.info("⚙️  Step 2: Processing")
+            # Step 3: Processing
+            logger.info("⚙️  Step 3: Processing")
             processing_results = self.run_processing()
             results["steps"]["processing"] = processing_results
             
-            # Step 3: Exports
-            logger.info("📤 Step 3: Exports")
+            # Step 4: Exports
+            logger.info("📤 Step 4: Exports")
             export_results = self.run_exports()
             results["steps"]["exports"] = export_results
             

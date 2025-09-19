@@ -206,3 +206,4 @@ def create_scheduler(enable_monitoring: bool = True, enable_weekly_runs: bool = 
     """Create and configure a pipeline scheduler."""
     return PipelineScheduler(enable_monitoring, enable_weekly_runs)
 
+

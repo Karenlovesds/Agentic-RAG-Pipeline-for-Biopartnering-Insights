@@ -21,10 +21,9 @@ scripts/
 │   └── main.py                      # Original main script
 ├── data_collection/         # Data collection scripts
 │   ├── extract_fda_indications.py
-│   ├── populate_clinical_trials.py
+│   ├── populate_clinical_trials.py (enhanced v2)
 │   ├── run_comprehensive_extraction.py
-│   ├── run_entity_extraction.py
-│   └── run_simple_extraction.py
+│   └── run_entity_extraction.py
 ├── deployment/              # Deployment configurations
 │   ├── biopartnering-pipeline.service
 │   ├── biopartnering-pipeline-scheduled.service

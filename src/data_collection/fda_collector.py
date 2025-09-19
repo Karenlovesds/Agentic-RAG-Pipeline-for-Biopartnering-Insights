@@ -2,10 +2,13 @@
 
 import json
 import requests
+import asyncio
 from typing import List, Dict, Any, Optional
 from loguru import logger
 from .base_collector import BaseCollector, CollectedData
 from config.config import settings
+from crawl4ai import AsyncWebCrawler
+from bs4 import BeautifulSoup
 
 
 class FDACollector(BaseCollector):
@@ -20,7 +23,7 @@ class FDACollector(BaseCollector):
         collected_data = []
         
         if data_types is None:
-            data_types = ["drug_approvals", "adverse_events", "clinical_trials", "regulatory_actions"]
+            data_types = ["drug_approvals", "adverse_events", "clinical_trials", "regulatory_actions", "surrogate_endpoints"]
         
         logger.info(f"Starting comprehensive FDA data collection for {len(data_types)} data types")
         
@@ -43,6 +46,9 @@ class FDACollector(BaseCollector):
                 elif data_type == "drug_shortages":
                     data = await self._collect_drug_shortages()
                     collected_data.extend(data)
+                elif data_type == "surrogate_endpoints":
+                    data = await self._collect_surrogate_endpoints()
+                    collected_data.extend(data)
                     
                 logger.info(f"✅ Completed {data_type} collection: {len(data)} documents")
                     
@@ -61,7 +67,7 @@ class FDACollector(BaseCollector):
             url = "https://api.fda.gov/drug/label.json"
             params = {
                 "limit": 20,
-                "search": "openfda.brand_name:* AND (indications_and_usage:\"cancer\" OR indications_and_usage:\"oncology\" OR indications_and_usage:\"tumor\" OR indications_and_usage:\"carcinoma\" OR indications_and_usage:\"sarcoma\" OR indications_and_usage:\"lymphoma\" OR indications_and_usage:\"leukemia\")",
+                "search": "openfda.brand_name:* AND (indications_and_usage:\"cancer\" OR indications_and_usage:\"oncology\" OR indications_and_usage:\"tumor\" OR indications_and_usage:\"carcinoma\" OR indications_and_usage:\"sarcoma\" OR indications_and_usage:\"lymphoma\" OR indications_and_usage:\"leukemia\" OR indications_and_usage:\"neoplasm\" OR indications_and_usage:\"malignancy\" OR indications_and_usage:\"metastatic\")",
                 "sort": "effective_time:desc"
             }
             
@@ -119,7 +125,7 @@ class FDACollector(BaseCollector):
             url = "https://api.fda.gov/drug/label.json"
             params = {
                 "limit": 30,
-                "search": "openfda.brand_name:* AND (indications_and_usage:\"cancer\" OR indications_and_usage:\"oncology\" OR indications_and_usage:\"tumor\" OR indications_and_usage:\"carcinoma\" OR indications_and_usage:\"sarcoma\" OR indications_and_usage:\"lymphoma\" OR indications_and_usage:\"leukemia\" OR openfda.brand_name:\"pembrolizumab\" OR openfda.brand_name:\"nivolumab\" OR openfda.brand_name:\"trastuzumab\" OR openfda.brand_name:\"bevacizumab\" OR openfda.brand_name:\"rituximab\")",
+                "search": "openfda.brand_name:* AND (indications_and_usage:\"cancer\" OR indications_and_usage:\"oncology\" OR indications_and_usage:\"tumor\" OR indications_and_usage:\"carcinoma\" OR indications_and_usage:\"sarcoma\" OR indications_and_usage:\"lymphoma\" OR indications_and_usage:\"leukemia\" OR indications_and_usage:\"neoplasm\" OR indications_and_usage:\"malignancy\" OR indications_and_usage:\"metastatic\")",
                 "sort": "effective_time:desc"
             }
             
@@ -575,6 +581,115 @@ In a full implementation, this would contain:
             content_parts.append(f"Date Updated: {date_updated}")
         if reason:
             content_parts.append(f"Reason: {reason}")
+        
+        return "\n".join(content_parts) if content_parts else ""
+    
+    async def _collect_surrogate_endpoints(self) -> List[CollectedData]:
+        """Collect FDA surrogate endpoints data from the official table."""
+        collected_data = []
+        url = "https://www.fda.gov/drugs/development-resources/table-surrogate-endpoints-were-basis-drug-approval-or-licensure"
+        
+        try:
+            logger.info("Collecting FDA surrogate endpoints data...")
+            
+            async with AsyncWebCrawler(verbose=False) as crawler:
+                result = await crawler.arun(
+                    url=url,
+                    word_count_threshold=50,
+                    bypass_cache=True,
+                    delay_between_requests=1.0
+                )
+                
+                if result.success and result.html:
+                    # Parse the HTML to extract table data
+                    soup = BeautifulSoup(result.html, 'html.parser')
+                    
+                    # Find Table 2: Adult Surrogate Endpoints – Cancer Related
+                    tables = soup.find_all('table')
+                    table_2 = None
+                    
+                    for table in tables:
+                        # Look for the table with "Adult Surrogate Endpoints" in the caption or nearby text
+                        caption = table.find('caption')
+                        if caption and 'Adult Surrogate Endpoints' in caption.get_text():
+                            table_2 = table
+                            break
+                        # Also check for table with "Cancer Related" in nearby text
+                        prev_text = table.find_previous('h2') or table.find_previous('h3')
+                        if prev_text and 'Cancer Related' in prev_text.get_text():
+                            table_2 = table
+                            break
+                    
+                    if table_2:
+                        logger.info("Found Table 2: Adult Surrogate Endpoints – Cancer Related")
+                        rows = table_2.find_all('tr')
+                        
+                        # Skip header row and process data rows
+                        for i, row in enumerate(rows[1:], 1):
+                            cells = row.find_all(['td', 'th'])
+                            if len(cells) >= 5:  # Ensure we have enough columns
+                                try:
+                                    # Extract data from each column
+                                    disease_use = cells[0].get_text(strip=True) if len(cells) > 0 else ""
+                                    patient_population = cells[1].get_text(strip=True) if len(cells) > 1 else ""
+                                    surrogate_endpoint = cells[2].get_text(strip=True) if len(cells) > 2 else ""
+                                    approval_type = cells[3].get_text(strip=True) if len(cells) > 3 else ""
+                                    drug_mechanism = cells[4].get_text(strip=True) if len(cells) > 4 else ""
+                                    
+                                    # Create content for this row
+                                    content = self._format_surrogate_endpoint_content(
+                                        disease_use, patient_population, surrogate_endpoint, 
+                                        approval_type, drug_mechanism
+                                    )
+                                    
+                                    if content:
+                                        collected_data.append(CollectedData(
+                                            source_url=url,
+                                            title=f"FDA Surrogate Endpoint - {disease_use}",
+                                            content=content,
+                                            source_type=self.source_type,
+                                            metadata={
+                                                "disease_use": disease_use,
+                                                "patient_population": patient_population,
+                                                "surrogate_endpoint": surrogate_endpoint,
+                                                "approval_type": approval_type,
+                                                "drug_mechanism": drug_mechanism,
+                                                "table": "Adult Surrogate Endpoints - Cancer Related",
+                                                "row_number": i
+                                            }
+                                        ))
+                                        
+                                except Exception as e:
+                                    logger.warning(f"Error processing row {i}: {e}")
+                                    continue
+                        
+                        logger.info(f"✅ Collected {len(collected_data)} surrogate endpoint entries")
+                    else:
+                        logger.warning("Could not find Table 2: Adult Surrogate Endpoints – Cancer Related")
+                else:
+                    logger.error("Failed to retrieve FDA surrogate endpoints page")
+                    
+        except Exception as e:
+            logger.error(f"Error collecting FDA surrogate endpoints: {e}")
+        
+        return collected_data
+    
+    def _format_surrogate_endpoint_content(self, disease_use: str, patient_population: str, 
+                                         surrogate_endpoint: str, approval_type: str, 
+                                         drug_mechanism: str) -> str:
+        """Format surrogate endpoint data into readable content."""
+        content_parts = []
+        
+        if disease_use:
+            content_parts.append(f"Disease or Use: {disease_use}")
+        if patient_population:
+            content_parts.append(f"Patient Population: {patient_population}")
+        if surrogate_endpoint:
+            content_parts.append(f"Surrogate Endpoint: {surrogate_endpoint}")
+        if approval_type:
+            content_parts.append(f"Type of Approval Appropriate for: {approval_type}")
+        if drug_mechanism:
+            content_parts.append(f"Drug Mechanism of Action: {drug_mechanism}")
         
         return "\n".join(content_parts) if content_parts else ""
     

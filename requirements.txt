@@ -1,15 +1,74 @@
-pydantic-ai
-ragas
-langchain
-langchain-ollama>=1.0.6
-streamlit>=1.28.0
-pandas>=2.0.0
-sqlalchemy>=2.0.0
-crawl4ai>=0.3.0
-loguru>=0.7.0
-python-dotenv>=1.0.0
-openai>=1.0.0
-requests>=2.31.0
-beautifulsoup4>=4.12.0
-lxml>=4.9.0
-playwright>=1.40.0
+# Core AI and RAG dependencies
+pydantic-ai==0.0.14
+ragas==0.1.17
+langchain==0.2.16
+langchain-ollama==0.1.0
+langchain-openai==0.1.8
+langchain-community==0.2.16
+
+# Web framework and UI
+streamlit==1.39.0
+streamlit-option-menu==0.3.6
+
+# Data processing and analysis
+pandas==2.2.3
+numpy==1.26.4
+
+# Database and ORM
+sqlalchemy==2.0.36
+alembic==1.13.3
+
+# Web scraping and crawling
+crawl4ai==0.7.4
+beautifulsoup4==4.12.3
+lxml~=5.3
+playwright>=1.49.0
+selenium==4.21.0
+
+# HTTP and API clients
+requests==2.32.3
+httpx==0.27.2
+aiohttp>=3.11.11
+
+# Configuration and environment
+python-dotenv==1.0.1
+pydantic>=2.10
+pydantic-settings==2.6.0
+
+# AI providers
+openai==1.51.2
+ollama==0.3.1
+
+# Logging and monitoring
+loguru==0.7.2
+
+# Data validation and serialization
+jsonschema==4.23.0
+marshmallow==3.23.1
+
+# Text processing and NLP
+nltk==3.9.1
+spacy==3.7.4
+transformers==4.45.2
+
+# Visualization and plotting
+plotly==5.22.0
+matplotlib==3.9.2
+seaborn==0.13.2
+
+# Testing and development
+pytest==8.3.4
+pytest-asyncio==0.24.0
+pytest-cov==6.0.0
+black==24.10.0
+flake8==7.1.1
+mypy==1.13.0
+
+# Production and deployment
+gunicorn==23.0.0
+uvicorn==0.32.1
+fastapi==0.115.6
+
+# System utilities
+psutil==6.1.0
+schedule==1.2.2

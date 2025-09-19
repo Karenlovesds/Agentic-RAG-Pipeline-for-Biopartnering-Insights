@@ -65,6 +65,17 @@ Examples:
     export_parser = subparsers.add_parser('export', help='Run exports only')
     export_parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose logging')
     
+    # Maintenance command
+    maintenance_parser = subparsers.add_parser('maintenance', help='Run database maintenance only')
+    maintenance_parser.add_argument('--tasks', nargs='+', 
+                                  choices=['drug_capitalization', 'drug_validation', 'drug_deduplication'],
+                                  help='Specific maintenance tasks to run (default: all)')
+    maintenance_parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose logging')
+    
+    # Drug summary command
+    summary_parser = subparsers.add_parser('drug-summary', help='Generate drug collection summary only')
+    summary_parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose logging')
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -74,24 +85,31 @@ Examples:
     # Change to project root directory
     os.chdir(project_root)
     
+    # Add project root to Python path
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+    
+    # Also add the current working directory
+    if '.' not in sys.path:
+        sys.path.insert(0, '.')
+    
     if args.command == 'run':
-        import asyncio
-        from scripts.main.run_complete_pipeline import main as run_main
-        sys.argv = ['run_complete_pipeline.py']
+        import subprocess
+        cmd = [sys.executable, 'scripts/main/run_complete_pipeline.py']
         if args.force:
-            sys.argv.append('--force')
+            cmd.append('--force')
         if args.verbose:
-            sys.argv.append('--verbose')
-        asyncio.run(run_main())
+            cmd.append('--verbose')
+        subprocess.run(cmd)
         
     elif args.command == 'schedule':
-        from scripts.main.run_scheduled_pipeline import main as schedule_main
-        sys.argv = ['run_scheduled_pipeline.py']
-        sys.argv.extend(['--interval', str(args.interval)])
-        sys.argv.extend(['--max-runtime', str(args.max_runtime)])
+        import subprocess
+        cmd = [sys.executable, 'scripts/main/run_scheduled_pipeline.py']
+        cmd.extend(['--interval', str(args.interval)])
+        cmd.extend(['--max-runtime', str(args.max_runtime)])
         if args.verbose:
-            sys.argv.append('--verbose')
-        schedule_main()
+            cmd.append('--verbose')
+        subprocess.run(cmd)
         
     elif args.command == 'web':
         import subprocess
@@ -144,6 +162,35 @@ Examples:
             
         finally:
             db.close()
+            
+    elif args.command == 'maintenance':
+        from scripts.maintenance.maintenance_orchestrator import run_maintenance
+        import asyncio
+        
+        try:
+            results = asyncio.run(run_maintenance(args.tasks))
+            print(f"\n🔧 Maintenance Results:")
+            print(f"Total tasks: {results['total_tasks']}")
+            print(f"Successful: {results['successful_tasks']}")
+            print(f"Failed: {results['failed_tasks']}")
+            
+            for task_name, task_result in results['task_results'].items():
+                status = "✅" if task_result['success'] else "❌"
+                print(f"{status} {task_name}: {task_result}")
+                
+        except Exception as e:
+            print(f"❌ Maintenance failed: {e}")
+            
+    elif args.command == 'drug-summary':
+        import subprocess
+        cmd = [sys.executable, 'scripts/processing/regenerate_drug_summary.py']
+        if args.verbose:
+            cmd.append('--verbose')
+        subprocess.run(cmd)
+            
+    else:
+        print(f"Unknown command: {args.command}")
+        parser.print_help()
 
 if __name__ == '__main__':
     main()

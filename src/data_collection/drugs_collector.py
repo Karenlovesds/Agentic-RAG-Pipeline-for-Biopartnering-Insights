@@ -23,21 +23,26 @@ class DrugsCollector(BaseCollector):
         """Collect comprehensive drug information including FDA approval history."""
         collected_data = []
         
-        # Default list of oncology drugs to collect
+        # Combine database drugs with known drugs for comprehensive coverage
         if drug_names is None:
-            drug_names = [
-                "pembrolizumab", "nivolumab", "trastuzumab", "bevacizumab", "rituximab",
-                "ipilimumab", "atezolizumab", "durvalumab", "avelumab", "cemiplimab",
-                "doxorubicin", "cisplatin", "carboplatin", "paclitaxel", "docetaxel",
-                "gemcitabine", "fluorouracil", "methotrexate", "cyclophosphamide", "etoposide",
-                "imatinib", "sorafenib", "sunitinib", "erlotinib", "gefitinib",
-                "cetuximab", "panitumumab", "lapatinib", "everolimus", "temsirolimus"
-            ]
+            drug_names = self._get_comprehensive_drug_list()
+        else:
+            # Add known drugs to the database drugs for more comprehensive coverage
+            known_drugs = self._get_comprehensive_drug_list()
+            # Combine and deduplicate (case-insensitive)
+            all_drugs = drug_names + known_drugs
+            seen = set()
+            drug_names = []
+            for drug in all_drugs:
+                drug_lower = drug.lower()
+                if drug_lower not in seen:
+                    seen.add(drug_lower)
+                    drug_names.append(drug)
         
-        # Limit to first 10 drugs for initial collection
-        drug_names = drug_names[:10]
+        # Limit to first 20 drugs for comprehensive collection
+        drug_names = drug_names[:20]
         
-        logger.info(f"Starting comprehensive drug data collection for {len(drug_names)} oncology drugs")
+        logger.info(f"Starting comprehensive drug data collection for {len(drug_names)} drugs (database + known drugs)")
         
         # Collect data from multiple sources
         for drug_name in drug_names:
@@ -68,6 +73,43 @@ class DrugsCollector(BaseCollector):
                 logger.error(f"Error collecting data for {drug_name}: {e}")
         
         return collected_data
+    
+    def _get_comprehensive_drug_list(self) -> List[str]:
+        """Get comprehensive list of oncology drugs from multiple sources."""
+        # Known brand/generic names (case-insensitive)
+        known_drugs = [
+            # Common Roche/Genentech marketed
+            "Atezolizumab","Giredestrant","Codrituzumab","Inavolisib","Polatuzumab vedotin piiq",
+            "Mosunetuzumab","Trastuzumab emtansine","Cevostamab","Clesitamig","Divarasib",
+            "Glofitamab","Mosperafenib","Alectinib","Autogene cevumeran","Cobimetinib",
+            "Entrectinib","Pertuzumab","Tiragolumab","Trastuzumab","Vemurafenib","Venclexta",
+            "Vismodegib","Bevacizumab","Obinutuzumab","Rituximab",
+            # AbbVie/Gilead/etc.
+            "Teliso-V","Epcoritamab","Mirvetuximab soravtansine",
+            # Daiichi ADCs
+            "Trastuzumab deruxtecan","Datopotamab deruxtecan-dlnk","Patrituzumab deruxtecan","Ifinatamab deruxtecan","Raludotatug deruxtecan",
+            # AZ/JNJ/MSD/etc. (selected)
+            "Durvalumab","Osimertinib","Olaparib","Tremelimumab","Gefitinib","Moxetumomab pasudotox",
+            "Bemarituzumab","Blinatumomab","Tarlatamab-dlle","Sotorasib",
+            "Carfilzomib","Enfortumab vedotin","Gilteritinib","Zolbetuximab","Fezolinetant",
+            "Darolutamide","Sevabertinib",
+            # Merck MK names
+            "Pembrolizumab","Belzutifan","Zilovertamab vedotin","Bomedemstat",
+            # Additional common oncology drugs
+            "Nivolumab","Ipilimumab","Avelumab","Cemiplimab","Doxorubicin","Cisplatin",
+            "Carboplatin","Paclitaxel","Docetaxel","Gemcitabine","Fluorouracil",
+            "Methotrexate","Cyclophosphamide","Etoposide","Imatinib","Sorafenib",
+            "Sunitinib","Erlotinib","Gefitinib","Cetuximab","Panitumumab",
+            "Lapatinib","Everolimus","Temsirolimus","Rituximab","Bevacizumab"
+        ]
+        
+        # Convert to lowercase for consistency
+        return [drug.lower() for drug in known_drugs]
+    
+    def _get_sample_known_drugs(self, limit: int = 10) -> List[str]:
+        """Get a sample of known drugs for testing purposes."""
+        known_drugs = self._get_comprehensive_drug_list()
+        return known_drugs[:limit]
     
     async def _collect_drugs_com_profile(self, drug_name: str) -> List[CollectedData]:
         """Collect basic drug profile from Drugs.com."""

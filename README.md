@@ -70,25 +70,25 @@ This pipeline automatically collects, processes, and analyzes biomedical data fr
 ### Installation
 
 1. **Clone the repository**
-   ```bash
+```bash
    git clone https://github.com/your-username/Agentic-RAG-Pipeline-for-Biopartnering-Insights.git
-   cd Agentic-RAG-Pipeline-for-Biopartnering-Insights
+cd Agentic-RAG-Pipeline-for-Biopartnering-Insights
    ```
 
 2. **Create conda environment**
-   ```bash
-   conda create -n pipe_env python=3.11 -y
-   conda activate pipe_env
+```bash
+conda create -n pipe_env python=3.11 -y
+conda activate pipe_env
    ```
 
 3. **Install dependencies**
    ```bash
-   pip install -r requirements.txt
+pip install -r requirements.txt
    ```
 
 4. **Set up environment variables**
    ```bash
-   cp .env.example .env
+cp .env.example .env
    # Edit .env and add your API keys and settings
    ```
 
@@ -197,9 +197,14 @@ Agentic-RAG-Pipeline-for-Biopartnering-Insights/
 │   │   ├── entity_extractor.py
 │   │   ├── pipeline.py
 │   │   └── csv_export.py
+│   ├── scripts/processing/       # Processing utilities
+│   │   ├── full_company_collection.py
+│   │   ├── improve_company_scraping.py
+│   │   ├── improved_company_data_collection.py
+│   │   ├── regenerate_drug_summary.py
+│   │   └── update_companies_pipeline_links.py
 │   ├── rag/                      # RAG system
-│   │   ├── agent.py
-│   │   ├── enhanced_basic_agent.py
+│   │   ├── rag_agent.py
 │   │   ├── models.py
 │   │   ├── provider.py
 │   │   └── cache_manager.py
@@ -225,7 +230,7 @@ Agentic-RAG-Pipeline-for-Biopartnering-Insights/
 ### Getting Started as a Developer
 
 1. **Fork and Clone**
-   ```bash
+```bash
    git clone https://github.com/your-username/Agentic-RAG-Pipeline-for-Biopartnering-Insights.git
    cd Agentic-RAG-Pipeline-for-Biopartnering-Insights
    ```
@@ -242,7 +247,7 @@ Agentic-RAG-Pipeline-for-Biopartnering-Insights/
    ```
 
 3. **Run Tests**
-   ```bash
+```bash
    # Unit tests
    pytest tests/unit/
    
@@ -302,7 +307,7 @@ Agentic-RAG-Pipeline-for-Biopartnering-Insights/
 ### Development Workflow
 
 1. **Create Feature Branch**
-   ```bash
+```bash
    git checkout -b feature/your-feature-name
    ```
 
@@ -345,7 +350,7 @@ Agentic-RAG-Pipeline-for-Biopartnering-Insights/
 4. Regenerate drug collection
 
 #### Improving RAG Responses
-1. Enhance prompt engineering in `agent.py`
+1. Enhance prompt engineering in `rag_agent.py`
 2. Improve context retrieval
 3. Add new evaluation metrics
 4. Test with sample queries

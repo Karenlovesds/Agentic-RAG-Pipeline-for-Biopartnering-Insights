@@ -6,24 +6,33 @@ from pathlib import Path
 import asyncio
 import pandas as pd
 from datetime import datetime
+from loguru import logger
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
 from src.models.database import get_db
-from src.models.entities import Document, Company, Drug, ClinicalTrial
+from src.models.entities import Document, Company, Drug, ClinicalTrial, Target, DrugTarget
 from src.data_collection.orchestrator import DataCollectionOrchestrator
 from config.config import settings, get_target_companies
 from src.rag.provider import build_provider, OllamaProvider
-from src.rag.enhanced_basic_agent import create_enhanced_basic_rag_agent
-from src.rag.simple_pydantic_agent import create_simple_pydantic_rag_agent
-from src.rag.ollama_sync_wrapper import create_ollama_sync_rag_agent
+from src.rag.rag_agent import create_enhanced_basic_rag_agent
 from src.rag.models import DrugSearchQuery, ClinicalTrialSearchQuery, BiopartneringQuery
 from src.rag.cache_manager import RAGCacheManager
 from src.processing.csv_export import export_basic, export_drug_table
 from src.processing.pipeline import run_processing
 from src.evaluation.ragas_eval import evaluate_rag_agent
+from src.evaluation.feedback_analysis import (
+    analyze_feedback_patterns, 
+    get_improvement_recommendations,
+    generate_feedback_summary,
+    export_feedback_data,
+    create_feedback_dashboard_data,
+    get_detailed_feedback_options,
+    validate_feedback_data,
+    get_feedback_insights
+)
 
 
 # Page configuration
@@ -55,6 +64,94 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+
+def render_enhanced_feedback(message_index: int, message_role: str):
+    """Render enhanced feedback system for assistant messages."""
+    if message_role != "assistant":
+        return
+    
+    # Initialize detailed feedback storage
+    if "detailed_feedback" not in st.session_state:
+        st.session_state.detailed_feedback = {}
+    
+    st.write("**📝 Help us improve this response:**")
+    
+    feedback_col1, feedback_col2 = st.columns([2, 1])
+    
+    with feedback_col1:
+        # Overall rating
+        rating = st.select_slider(
+            "Overall Quality (1-5)",
+            options=[1, 2, 3, 4, 5],
+            value=st.session_state.feedback.get(message_index, 3),
+            key=f"rating_{message_index}",
+            help="1 = Poor, 2 = Fair, 3 = Good, 4 = Very Good, 5 = Excellent",
+            format_func=lambda x: f"{x} ⭐" if x == 1 else f"{x} ⭐" if x == 2 else f"{x} ⭐" if x == 3 else f"{x} ⭐" if x == 4 else f"{x} ⭐"
+        )
+        if rating != st.session_state.feedback.get(message_index, 3):
+            st.session_state.feedback[message_index] = rating
+            st.success(f"Thank you for rating this response {rating}/5!")
+        
+        # Detailed feedback options
+        st.write("**Specific Issues (select all that apply):**")
+        
+        # Get detailed feedback options from the analysis module
+        detailed_options = get_detailed_feedback_options()
+        
+        # Initialize detailed feedback for this message
+        if message_index not in st.session_state.detailed_feedback:
+            st.session_state.detailed_feedback[message_index] = []
+        
+        # Create checkboxes for detailed feedback
+        selected_issues = []
+        for option_key, option_text in detailed_options.items():
+            if st.checkbox(
+                option_text, 
+                key=f"detailed_{message_index}_{option_key}",
+                value=option_key in st.session_state.detailed_feedback[message_index]
+            ):
+                if option_key not in st.session_state.detailed_feedback[message_index]:
+                    st.session_state.detailed_feedback[message_index].append(option_key)
+            else:
+                if option_key in st.session_state.detailed_feedback[message_index]:
+                    st.session_state.detailed_feedback[message_index].remove(option_key)
+        
+        # Additional comments
+        st.write("**Additional Comments (optional):**")
+        comment = st.text_area(
+            "Tell us more about what could be improved:",
+            key=f"comment_{message_index}",
+            placeholder="e.g., 'The drug mechanism explanation was confusing' or 'Need more recent clinical trial data'",
+            height=60
+        )
+        
+        # Save comment if provided
+        if comment and comment.strip():
+            if "comments" not in st.session_state.detailed_feedback[message_index]:
+                st.session_state.detailed_feedback[message_index] = st.session_state.detailed_feedback[message_index] + ["comments"]
+            st.session_state.detailed_feedback[message_index].append(f"comment: {comment.strip()}")
+    
+    with feedback_col2:
+        if message_index in st.session_state.feedback:
+            current_rating = st.session_state.feedback[message_index]
+            if current_rating >= 4:
+                st.success(f"✅ {current_rating}/5 - Great!")
+            elif current_rating >= 3:
+                st.info(f"✅ {current_rating}/5 - Good")
+            else:
+                st.warning(f"⚠️ {current_rating}/5 - Needs improvement")
+        
+        # Show selected issues
+        if message_index in st.session_state.detailed_feedback and st.session_state.detailed_feedback[message_index]:
+            st.write("**Selected Issues:**")
+            for issue in st.session_state.detailed_feedback[message_index]:
+                if not issue.startswith("comment:"):
+                    st.write(f"• {detailed_options.get(issue, issue)}")
+    
+    st.write("---")
+
+
 
 
 def generate_follow_up_questions(answer_text: str, original_question: str) -> list:
@@ -143,6 +240,58 @@ def get_database_stats():
     except Exception as e:
         st.error(f"Error getting database stats: {e}")
         return {"documents": 0, "companies": 0, "drugs": 0, "clinical_trials": 0}
+
+
+def load_drugs_from_database():
+    """Load drugs data directly from database with targets and company info."""
+    try:
+        db = get_db()
+        
+        # Query drugs with company information
+        drugs = db.query(Drug).join(Company, Drug.company_id == Company.id).all()
+        
+        # Convert to DataFrame format
+        drug_data = []
+        for drug in drugs:
+            # Get targets for this drug
+            targets = db.query(Target).join(DrugTarget).filter(
+                DrugTarget.drug_id == drug.id
+            ).all()
+            target_names = [t.name for t in targets]
+            
+            # Get clinical trials for this drug
+            clinical_trials = db.query(ClinicalTrial).filter(
+                ClinicalTrial.drug_id == drug.id
+            ).all()
+            
+            # Format clinical trials
+            trial_summaries = []
+            for trial in clinical_trials:
+                parts = [
+                    (trial.title or "").strip(),
+                    (trial.phase or "").strip(),
+                    (trial.status or "").strip(),
+                ]
+                trial_summaries.append(" | ".join([p for p in parts if p]))
+            
+            drug_data.append({
+                'Generic name': drug.generic_name,
+                'Brand name': drug.brand_name or '',
+                'Drug Class': drug.drug_class or '',
+                'FDA Approval Date': drug.fda_approval_date.strftime('%Y-%m-%d') if drug.fda_approval_date else '',
+                'Company name': drug.company.name if drug.company else '',
+                'Target': ', '.join(target_names) if target_names else '',
+                'Mechanism of Action': drug.mechanism_of_action or '',
+                'Indication Approved': '',  # Would need to join with indications table
+                'Current Clinical Trials': '; '.join(trial_summaries) if trial_summaries else ''
+            })
+        
+        db.close()
+        return pd.DataFrame(drug_data)
+        
+    except Exception as e:
+        logger.error(f"Error loading drugs from database: {e}")
+        return pd.DataFrame()
 
 
 def main():
@@ -245,15 +394,16 @@ def show_dashboard():
     with col4:
         st.metric("Clinical Trials", stats["clinical_trials"])
     
-    # CSV Data Preview
+    # Database Data Preview
     st.header("📊 Data Collection Results")
     
-    # Check if CSV files exist and show preview
-    if Path("outputs/biopharma_drugs.csv").exists():
-        st.subheader("💊 Biopharma Drugs Preview")
+    # Load drugs from database
+    st.subheader("💊 Biopharma Drugs Preview")
+    
+    try:
+        df = load_drugs_from_database()
         
-        try:
-            df = pd.read_csv("outputs/biopharma_drugs.csv")
+        if not df.empty:
             
             # Show quick stats
             col1, col2, col3, col4 = st.columns(4)
@@ -264,13 +414,13 @@ def show_dashboard():
             with col3:
                 st.metric("Drugs with Brand Names", len(df[df['Brand name'].notna() & (df['Brand name'] != '')]))
             with col4:
-                st.metric("FDA Approved", len(df[df['FDA Approval'].notna() & (df['FDA Approval'] != '')]))
+                st.metric("FDA Approved", len(df[df['FDA Approval Date'].notna() & (df['FDA Approval Date'] != '')]))
             
             # Add filters
             st.subheader("🔍 Filter Options")
             
-            # Create filter columns (6 columns to accommodate all filters)
-            filter_col1, filter_col2, filter_col3, filter_col4, filter_col5, filter_col6 = st.columns(6)
+            # Create filter columns (7 columns to accommodate all filters)
+            filter_col1, filter_col2, filter_col3, filter_col4, filter_col5, filter_col6, filter_col7 = st.columns(7)
             
             with filter_col1:
                 # Generic name filter
@@ -293,23 +443,31 @@ def show_dashboard():
                         df = df[df['Drug Class'] == selected_class]
             
             with filter_col4:
-                # FDA approval filter
-                if 'FDA Approval' in df.columns:
-                    fda_options = ['All', 'Approved', 'Not Approved']
-                    fda_filter = st.selectbox("Filter by FDA Status", fda_options)
-                    if fda_filter == 'Approved':
-                        df = df[df['FDA Approval'].notna() & (df['FDA Approval'] != '')]
-                    elif fda_filter == 'Not Approved':
-                        df = df[df['FDA Approval'].isna() | (df['FDA Approval'] == '')]
+                # Target filter
+                if 'Target' in df.columns:
+                    targets = ['All'] + sorted(df['Target'].dropna().unique().tolist())
+                    selected_target = st.selectbox("Filter by Target", targets)
+                    if selected_target != 'All':
+                        df = df[df['Target'] == selected_target]
             
             with filter_col5:
+                # FDA approval filter
+                if 'FDA Approval Date' in df.columns:
+                    fda_options = ['All', 'Has Approval Date', 'No Approval Date']
+                    fda_filter = st.selectbox("Filter by FDA Status", fda_options)
+                    if fda_filter == 'Has Approval Date':
+                        df = df[df['FDA Approval Date'].notna() & (df['FDA Approval Date'] != '')]
+                    elif fda_filter == 'No Approval Date':
+                        df = df[df['FDA Approval Date'].isna() | (df['FDA Approval Date'] == '')]
+            
+            with filter_col6:
                 # Approved indication filter
                 if 'Indication Approved' in df.columns:
                     indication_filter = st.text_input("Filter by Approved Indication", placeholder="e.g., cancer, diabetes")
                     if indication_filter:
                         df = df[df['Indication Approved'].str.contains(indication_filter, case=False, na=False)]
             
-            with filter_col6:
+            with filter_col7:
                 # Current clinical trials filter
                 if 'Current Clinical Trials' in df.columns:
                     trial_filter = st.text_input("Filter by Current Clinical Trial", placeholder="e.g., NCT12345678")
@@ -334,13 +492,11 @@ def show_dashboard():
             else:
                 st.warning("No drugs match the current filters. Try adjusting your search criteria.")
             
-            if len(df) < len(pd.read_csv("outputs/biopharma_drugs.csv")):
-                st.info(f"Showing {len(df)} filtered results out of {len(pd.read_csv('outputs/biopharma_drugs.csv'))} total drugs.")
+        else:
+            st.info("No biopharma drugs data found. Run data collection to generate results.")
             
-        except Exception as e:
-            st.error(f"Error loading CSV preview: {e}")
-    else:
-        st.info("No biopharma drugs data found. Run data collection to generate results.")
+    except Exception as e:
+        st.error(f"Error loading biopharma drugs: {e}")
     
     # Pipeline drugs summary
     if Path("outputs/drug_collection_summary.txt").exists():
@@ -587,35 +743,8 @@ def show_rag_agent():
                 confidence = message["content"].get("confidence", 0)
                 st.metric("Confidence", f"{confidence:.2f}")
                 
-                # Add feedback section for assistant messages
-                if message["role"] == "assistant":
-                    st.write("**Rate this response (1-5):**")
-                    feedback_col1, feedback_col2 = st.columns([2, 1])
-                    
-                    with feedback_col1:
-                        rating = st.select_slider(
-                            "Quality Rating",
-                            options=[1, 2, 3, 4, 5],
-                            value=st.session_state.feedback.get(i, 3),
-                            key=f"rating_{i}",
-                            help="1 = Poor, 2 = Fair, 3 = Good, 4 = Very Good, 5 = Excellent",
-                            format_func=lambda x: f"{x} ⭐" if x == 1 else f"{x} ⭐" if x == 2 else f"{x} ⭐" if x == 3 else f"{x} ⭐" if x == 4 else f"{x} ⭐"
-                        )
-                        if rating != st.session_state.feedback.get(i, 3):
-                            st.session_state.feedback[i] = rating
-                            st.success(f"Thank you for rating this response {rating}/5!")
-                    
-                    with feedback_col2:
-                        if i in st.session_state.feedback:
-                            current_rating = st.session_state.feedback[i]
-                            if current_rating >= 4:
-                                st.success(f"✅ {current_rating}/5 - Great!")
-                            elif current_rating >= 3:
-                                st.info(f"✅ {current_rating}/5 - Good")
-                            else:
-                                st.warning(f"⚠️ {current_rating}/5 - Needs improvement")
-                    
-                    st.write("---")
+                # Enhanced feedback section for assistant messages
+                render_enhanced_feedback(i, message["role"])
                 
                 # Show drugs mentioned
                 drugs = message["content"].get("drugs_mentioned", [])
@@ -666,35 +795,8 @@ def show_rag_agent():
                 # Basic text response
                 st.markdown(message["content"])
                 
-                # Add feedback section for assistant messages
-                if message["role"] == "assistant":
-                    st.write("**Rate this response (1-5):**")
-                    feedback_col1, feedback_col2 = st.columns([2, 1])
-                    
-                    with feedback_col1:
-                        rating = st.select_slider(
-                            "Quality Rating",
-                            options=[1, 2, 3, 4, 5],
-                            value=st.session_state.feedback.get(i, 3),
-                            key=f"rating_{i}",
-                            help="1 = Poor, 2 = Fair, 3 = Good, 4 = Very Good, 5 = Excellent",
-                            format_func=lambda x: f"{x} ⭐" if x == 1 else f"{x} ⭐" if x == 2 else f"{x} ⭐" if x == 3 else f"{x} ⭐" if x == 4 else f"{x} ⭐"
-                        )
-                        if rating != st.session_state.feedback.get(i, 3):
-                            st.session_state.feedback[i] = rating
-                            st.success(f"Thank you for rating this response {rating}/5!")
-                    
-                    with feedback_col2:
-                        if i in st.session_state.feedback:
-                            current_rating = st.session_state.feedback[i]
-                            if current_rating >= 4:
-                                st.success(f"✅ {current_rating}/5 - Great!")
-                            elif current_rating >= 3:
-                                st.info(f"✅ {current_rating}/5 - Good")
-                            else:
-                                st.warning(f"⚠️ {current_rating}/5 - Needs improvement")
-                    
-                    st.write("---")
+                # Enhanced feedback section for assistant messages
+                render_enhanced_feedback(i, message["role"])
     
     # Chat input
     if prompt := st.chat_input("Ask about biopartner opportunities, cancer drugs, clinical trials, or oncology partnerships..."):
@@ -859,6 +961,60 @@ def show_rag_agent():
                     mime="application/json",
                     help="Download feedback data as JSON file"
                 )
+        
+        # Enhanced detailed feedback analysis
+        if "detailed_feedback" in st.session_state and st.session_state.detailed_feedback:
+            st.subheader("🔍 Detailed Feedback Analysis")
+            
+            # Analyze feedback patterns
+            feedback_analysis = analyze_feedback_patterns(st.session_state.detailed_feedback)
+            
+            if feedback_analysis["total_responses"] > 0:
+                # Show issue breakdown
+                st.write("**Common Issues Identified:**")
+                issue_percentages = feedback_analysis["issue_percentages"]
+                
+                if issue_percentages:
+                    issue_df = pd.DataFrame([
+                        {"Issue": issue.replace("_", " ").title(), "Percentage": f"{percentage:.1f}%", "Count": feedback_analysis["issue_counts"][issue]}
+                        for issue, percentage in sorted(issue_percentages.items(), key=lambda x: x[1], reverse=True)
+                    ])
+                    st.dataframe(issue_df, use_container_width=True)
+                    
+                    # Improvement recommendations
+                    recommendations = get_improvement_recommendations(feedback_analysis)
+                    
+                    if recommendations:
+                        st.subheader("💡 Improvement Recommendations")
+                        
+                        for rec in recommendations:
+                            priority_color = {
+                                "High": "🔴",
+                                "Medium": "🟡", 
+                                "Low": "🟢"
+                            }.get(rec["priority"], "⚪")
+                            
+                            st.write(f"{priority_color} **{rec['issue']}** ({rec['percentage']:.1f}% of responses)")
+                            st.write(f"   {rec['recommendation']}")
+                            st.write("")
+                else:
+                    st.info("No specific issues identified in detailed feedback.")
+            
+            # Download enhanced feedback data using the new module
+            if st.button("📥 Download Enhanced Feedback Data"):
+                enhanced_feedback_json = export_feedback_data(
+                    st.session_state.feedback,
+                    st.session_state.detailed_feedback,
+                    st.session_state.messages
+                )
+                
+                st.download_button(
+                    "📥 Download Enhanced Feedback JSON",
+                    data=enhanced_feedback_json,
+                    file_name=f"enhanced_feedback_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    mime="application/json",
+                    help="Download detailed feedback data as JSON file"
+                )
 
 
 def show_results():
@@ -896,7 +1052,7 @@ def show_results():
             with col3:
                 st.metric("Drugs with Brand Names", len(df[df['Brand name'].notna() & (df['Brand name'] != '')]))
             with col4:
-                st.metric("FDA Approved", len(df[df['FDA Approval'].notna() & (df['FDA Approval'] != '')]))
+                st.metric("FDA Approved", len(df[df['FDA Approval Date'].notna() & (df['FDA Approval Date'] != '')]))
             
             # Display the data
             st.dataframe(df, use_container_width=True)

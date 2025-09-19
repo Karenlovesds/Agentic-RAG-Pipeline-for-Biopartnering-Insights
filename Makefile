@@ -17,6 +17,7 @@ help:
 	@echo "  web            Start web interface"
 	@echo ""
 	@echo "Individual Components:"
+	@echo "  maintenance    Run database maintenance only"
 	@echo "  data-collect   Run data collection only"
 	@echo "  process        Run processing only"
 	@echo "  export         Run exports only"
@@ -56,6 +57,10 @@ web:
 	python run_pipeline.py web
 
 # Individual components
+maintenance:
+	@echo "Running database maintenance..."
+	python run_pipeline.py maintenance
+
 data-collect:
 	@echo "Running data collection..."
 	python run_pipeline.py data-collect

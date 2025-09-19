@@ -79,46 +79,125 @@ class ClinicalTrialsCollector(BaseCollector):
         
         logger.info(f"🎉 Completed targeted clinical trials collection: {len(collected_data)} total documents")
         return collected_data
+
+    async def collect_company_keyword_trials(self, max_companies: int = 5) -> List[CollectedData]:
+        """Collect clinical trials using company-specific keyword combinations."""
+        collected_data = []
+        seen_trials = set()  # For deduplication using NCT IDs
+        
+        # Get company list
+        companies = get_target_companies()[:max_companies]
+        
+        # Define keyword combinations for each company
+        keyword_combinations = [
+            "cancer",
+            "oncology", 
+            "tumor"
+        ]
+        
+        logger.info(f"Starting company keyword trials collection for {len(companies)} companies")
+        
+        for company in companies:
+            logger.info(f"🔍 Collecting keyword trials for {company}")
+            
+            for keyword in keyword_combinations:
+                try:
+                    # Create search query: "company name + keyword"
+                    search_query = f"{company} {keyword}"
+                    
+                    params = {
+                        "format": "json",
+                        "pageSize": 30,
+                        "query.cond": search_query
+                    }
+                    
+                    data = await self._collect_company_trials(params)
+                    
+                    # Deduplicate based on NCT ID
+                    unique_data = []
+                    for trial in data:
+                        nct_id = trial.metadata.get("nct_id", "")
+                        if nct_id and nct_id not in seen_trials:
+                            seen_trials.add(nct_id)
+                            unique_data.append(trial)
+                    
+                    collected_data.extend(unique_data)
+                    
+                    if unique_data:
+                        logger.info(f"✅ Found {len(unique_data)} unique trials for '{search_query}'")
+                    else:
+                        logger.info(f"ℹ️ No new trials found for '{search_query}'")
+                        
+                except Exception as e:
+                    logger.error(f"Error collecting trials for '{company} {keyword}': {e}")
+                    continue
+        
+        logger.info(f"🎉 Completed company keyword trials collection: {len(collected_data)} unique documents")
+        return collected_data
     
     async def _collect_company_trials(self, params: Dict[str, Any]) -> List[CollectedData]:
-        """Collect trials for a specific company."""
+        """Collect trials for a specific company with pagination support."""
         collected_data = []
+        page_size = params.get("pageSize", 50)
+        max_pages = params.get("maxPages", 3)  # Collect up to 3 pages by default
+        page_token = None
         
         try:
-            response = self._make_request(self.base_url, params)
-            if not response:
-                return collected_data
-            
-            data = response.json()
-            studies = data.get("studies", [])
-            
-            for study in studies:
-                protocol_section = study.get("protocolSection", {})
-                identification_module = protocol_section.get("identificationModule", {})
+            for page in range(max_pages):
+                # Add pagination parameters (remove maxPages from API params)
+                page_params = {k: v for k, v in params.items() if k != "maxPages"}
+                # Use pageToken for pagination (API v2 format)
+                if page_token:
+                    page_params["pageToken"] = page_token
                 
-                # Extract key information
-                nct_id = identification_module.get("nctId", "")
-                title = identification_module.get("briefTitle", "")
+                response = self._make_request(self.base_url, page_params)
+                if not response:
+                    break
                 
-                # Create content from study data
-                content = self._format_study_content(study)
+                data = response.json()
+                studies = data.get("studies", [])
                 
-                if nct_id and content:
-                    collected_data.append(CollectedData(
-                        source_url=f"https://clinicaltrials.gov/study/{nct_id}",
-                        title=title,
-                        content=content,
-                        source_type=self.source_type,
-                        metadata={
-                            "nct_id": nct_id,
-                            "company": params.get("query.spons", ""),
-                            "study_data": study
-                        }
-                    ))
+                if not studies:
+                    logger.info(f"No more studies found on page {page + 1}, stopping pagination")
+                    break
+                
+                logger.info(f"Processing page {page + 1}, found {len(studies)} studies")
+                
+                # Get nextPageToken for pagination
+                page_token = data.get("nextPageToken")
+                if not page_token:
+                    logger.info("No nextPageToken found, stopping pagination")
+                    break
+                
+                for study in studies:
+                    protocol_section = study.get("protocolSection", {})
+                    identification_module = protocol_section.get("identificationModule", {})
+                    
+                    # Extract key information
+                    nct_id = identification_module.get("nctId", "")
+                    title = identification_module.get("briefTitle", "")
+                    
+                    # Create content from study data
+                    content = self._format_study_content(study)
+                    
+                    if nct_id and content:
+                        collected_data.append(CollectedData(
+                            source_url=f"https://clinicaltrials.gov/study/{nct_id}",
+                            title=title,
+                            content=content,
+                            source_type=self.source_type,
+                            metadata={
+                                "nct_id": nct_id,
+                                "company": params.get("query.spons", ""),
+                                "study_data": study,
+                                "page": page + 1
+                            }
+                        ))
                     
         except Exception as e:
             logger.error(f"Error collecting trials for company {params.get('query.spons', '')}: {e}")
         
+        logger.info(f"✅ Collected {len(collected_data)} total trials across {page + 1} pages")
         return collected_data
     
     def _format_study_content(self, study: Dict[str, Any]) -> str:

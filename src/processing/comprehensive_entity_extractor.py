@@ -393,8 +393,7 @@ class ComprehensiveEntityExtractor:
                 rel = DrugIndication(
                     drug_id=drug_id,
                     indication_id=indication.id,
-                    approval_status=True,
-                    created_at=datetime.utcnow()
+                    approval_status=True
                 )
                 self.db.add(rel)
     

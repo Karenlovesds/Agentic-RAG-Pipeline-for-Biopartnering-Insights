@@ -1,127 +1,97 @@
 Comprehensive Drug Collection Summary
 ========================================
 
-Pipeline Drugs Found: 120
-FDA Documents: 0
-Drugs.com Documents: 21
-Clinical Trials: 302
-Total Documents: 323
+Pipeline Drugs Found: 172
+FDA Documents: 990
+Clinical Trial Documents: 8130
+Company Documents: 465
+Clinical Trials (Extracted): 27
+Total Documents: 9780
 Success: True
 
 Pipeline Drugs by Company:
 ==============================
 
-Merck & Co.:
-------------
-    1. Trastuzumab
-
-Bristol Myers Squibb:
----------------------
-    1. Elotuzumab
-    2. Ipilimumab
-    3. Nivolumab
-
-Roche/Genentech:
-----------------
+Johnson & Johnson:
+------------------
     1. Atezolizumab
-    2. Trastuzumab
-
-AstraZeneca:
-------------
-    1. Anselamimab
     2. Bevacizumab
-    3. Datopotamab
-    4. Datopotamab Deruxtecan
-    5. Datroway (Datopotamab Deruxtecan) Tropion-Breast01
-    6. Domvanalimab
-    7. Gefurulimab
-    8. Lenvatinib
-    9. Monalizumab
-   10. Obinutuzumab
-   11. Oleclumab
-   12. Osimertinib
-   13. Pembrolizumab
-   14. Sonesitatug Vedotin
-   15. Sonesitatug Vedotin (Azd0901)
-   16. Sonesitatug Vedotin (Azd0901)
- - Phase Ii
-   17. Sonesitatug Vedotin (Azd0901)
- - Phase Ii
-
-
-Close
-   18. Sonesitatug Vedotin (Azd0901) Clarity-Gastric01
-   19. Tozorakimab
-   20. Volrustomig + Lenvatinib
+    3. Bleximenib
+    4. Cetrelimab
+    5. Codrituzumab
+    6. Daratumumab
+    7. Durvalumab
+    8. Erdafitinib
+    9. Genmab
+   10. Guselkumab
+   11. Ibrutinib
+   12. Ipilimumab
+   13. Lazertinib
+   14. Mosunetuzumab
+   15. Nipocalimab
+   16. Niraparib
+   17. Nivolumab
+   18. Olaparib
+   19. Palbociclib
+   20. Pembrolizumab
+   21. Polatuzumab
+   22. Posdinemab
+   23. Relatlimab
+   24. Rg6810
+   25. Rituximab
+   26. Rucaparib
+   27. Talquetamab
+   28. Teclistamab
+   29. Trastuzumab
+   30. Ustekinumab
+   31. abemaciclib
+   32. alectinib
+   33. atezolizumab
+   34. avelumab
+   35. bevacizumab
+   36. blinatumomab
+   37. cemiplimab
+   38. ceritinib
+   39. codrituzumab
+   40. crizotinib
+   41. dasatinib
+   42. durvalumab
+   43. elotuzumab
+   44. glofitamab
+   45. ipilimumab
+   46. lorlatinib
+   47. mosunetuzumab
+   48. nemtabrutinib
+   49. niraparib
+   50. nivolumab
+   51. olaparib
+   52. palbociclib
+   53. pembrolizumab
+   54. polatuzumab
+   55. relatlimab
+   56. repotrectinib
+   57. rg6810
+   58. ribociclib
+   59. rituximab
+   60. rucaparib
+   61. sacituzumab
+   62. talazoparib
+   63. trastuzumab
 
 Pfizer:
 -------
-    1. Avelumab
+    1. Alectinib
+    2. Cevostamab
+    3. Glofitamab
+    4. Pembrolizumab
+    5. alectinib
+    6. cevostamab
+    7. glofitamab
+    8. pembrolizumab
 
-Novartis:
----------
-    1. Tisagenlecleucel
-
-Gilead Sciences:
-----------------
-    1. Yescarta
-
-Amgen:
-------
-    1. Blinatumomab
-
-Regeneron Pharmaceuticals:
---------------------------
-    1. Aflibercept
-    2. Cemiplimab
-    3. Dupilumab
-    4. Fianlimab
-    5. Garetosmab
-    6. Itepekimab
-    7. Linvoseltamab
-    8. Mibavademab
-    9. Odronextamab
-   10. Pozelimab
-   11. Sarilumab
-   12. Trevogrumab
-   13. Ubamatamab
-
-BeiGene:
---------
-    1. Acalabrutinib
-    2. Blinatumomab
-    3. Daratumumab
-    4. Durvalamab
-    5. Ibrutinib
-    6. Osimertinib
-    7. Tarlatamab
-    8. Tislelizumab
-    9. Zanidatamab
-   10. Zanubrutinib
-
-Incyte:
--------
-    1. Ruxolitinib
-
-Johnson & Johnson:
-------------------
-    1. Amivantamab
-    2. Autoleucel
-    3. Bleximenib
-    4. Carvykti
-    5. Cetrelimab
-    6. Daratumumab
-    7. Erdafitinib
-    8. Genmab
-    9. Golimumab
-   10. Guselkumab
-   11. Ibrutinib
-   12. Lazertinib
-   13. Nipocalimab
-   14. Posdinemab
-   15. Talquetamab
-   16. Teclistamab
-   17. Ustekinumab
+Merck & Co.:
+------------
+    1. Pembrolizumab
 
 AbbVie:
 -------
@@ -129,17 +99,15 @@ AbbVie:
     2. Concept
     3. Elezanumab
     4. Epcoritamab
-    5. Genmab
-    6. Livmoniplimab
-    7. Lutikizumab
-    8. Mirvetuximab
-    9. Pivekimab
-   10. Ravagalimab
-   11. Risankizumab
-   12. Telisotuzumab
-   13. Telisotuzumab Vedotin
-   14. Temab
-   15. Upadacitinib
+    5. Livmoniplimab
+    6. Lutikizumab
+    7. Mirvetuximab
+    8. Pivekimab
+    9. Ravagalimab
+   10. Risankizumab
+   11. Telisotuzumab
+   12. Temab
+   13. Upadacitinib
 
 Sanofi:
 -------
@@ -162,64 +130,245 @@ Tolebrutinib
    11. Teplizumab
    12. Tolebrutinib
 
-Merck KGaA:
------------
-    1. Bezlotoxumab
-    2. Clesrovimab
-    3. Ifinatamab Deruxtecan
-    4. Nemtabrutinib
-    5. Patritumab Deruxtecan
-    6. Pembrolizumab
-    7. Quavonlimab
-    8. Sacituzumab Tirumotecan
-    9. Sotatercept
-   10. Zilovertamab Vedotin
+Bristol Myers Squibb:
+---------------------
+    1. Nivolumab
+
+AstraZeneca:
+------------
+    1. Abemaciclib
+    2. Anselamimab
+    3. Bevacizumab
+    4. Datopotamab
+    5. Domvanalimab
+    6. Gefurulimab
+    7. Lenvatinib
+    8. Monalizumab
+    9. Obinutuzumab
+   10. Oleclumab
+   11. Osimertinib
+   12. Palbociclib
+   13. Pembrolizumab
+   14. Tozorakimab
+   15. Volrustomig + Lenvatinib
+   16. abemaciclib
+   17. bevacizumab
+   18. olaparib
+   19. palbociclib
+   20. pembrolizumab
+
+Eli Lilly:
+----------
+    1. Abemaciclib
 
 GlaxoSmithKline (GSK):
 ----------------------
     1. Belantamab
-    2. Belimumab
-    3. Cobolimab
-    4. Depemokimab
-    5. Dostarlimab
-    6. Gsk2857914 Belantamab
-    7. Gsk3511294 † Depemokimab
-    8. Gsk4069889 (Tsr-022) † Cobolimab
-    9. Gsk4527223 (Al-001) † Latozinemab
-   10. Latozinemab
-   11. Mepolizumab
-   12. Momelotinib
+    2. Cobolimab
+    3. Depemokimab
+    4. Dostarlimab
+    5. Latozinemab
+    6. Mepolizumab
+    7. Momelotinib
+    8. Niraparib
+    9. niraparib
+
+Regeneron Pharmaceuticals:
+--------------------------
+    1. Cemiplimab
+    2. Dupilumab
+    3. Fianlimab
+    4. Garetosmab
+    5. Linvoseltamab
+    6. Mibavademab
+    7. Odronextamab
+    8. Pozelimab
+    9. Sarilumab
+   10. Trevogrumab
+   11. Ubamatamab
+   12. cemiplimab
+
+BeiGene:
+--------
+    1. Blinatumomab
+    2. Durvalamab
+    3. Tarlatamab
+    4. Tislelizumab
+    5. Zanidatamab
+    6. Zanubrutinib
+    7. blinatumomab
+
+FDA Drug Label API:
+-------------------
+    1. Denosumab
+    2. Flammab
+    3. Imatinib
+    4. Infliximab
+    5. Pertuzumab
+    6. Recept
+
+containing:
+-----------
+    1. atezolizumab
+    2. blinatumomab
+
+Pfizer Laboratories Div Pfizer Inc:
+-----------------------------------
+    1. Infliximab
+
+Organon LLC:
+------------
+    1. Denosumab
+
+GE Healthcare Inc.:
+-------------------
+    1. Recept
+
+Janssen Biotech, Inc.:
+----------------------
+    1. Amivantamab
+    2. Golimumab
+
+Amgen, Inc:
+-----------
+    1. Blinatumomab
+    2. Rituximab
+
+Genentech, Inc.:
+----------------
+    1. Atezolizumab
+    2. Pertuzumab
+    3. Trastuzumab
+
+Amneal Pharmaceuticals LLC:
+---------------------------
+    1. Bevacizumab
+
+Mylan Institutional Inc:
+------------------------
+    1. Imatinib
+
+KLEIN TOOLS, INC.:
+------------------
+    1. Flammab
+
+AstraZeneca Pharmaceuticals LP:
+-------------------------------
+    1. Acalabrutinib
+
+Regeneron Pharmaceuticals, Inc.:
+--------------------------------
+    1. Aflibercept
+    2. Cemiplimab
+
+GlaxoSmithKline LLC:
+--------------------
+    1. Belimumab
 
 
 Summary by Company:
 ====================
+  Johnson & Johnson: 63 drugs
+  Pfizer: 8 drugs
+  Roche/Genentech: 0 drugs
+  Novartis: 0 drugs
   Merck & Co.: 1 drugs
-  Bristol Myers Squibb: 3 drugs
-  Roche/Genentech: 2 drugs
-  AstraZeneca: 20 drugs
-  Pfizer: 1 drugs
-  Novartis: 1 drugs
-  Gilead Sciences: 1 drugs
-  Amgen: 1 drugs
-  Regeneron Pharmaceuticals: 13 drugs
-  BioNTech: 0 drugs
-  BeiGene: 10 drugs
-  Seagen: 0 drugs
-  Incyte: 1 drugs
-  Vertex Pharmaceuticals: 0 drugs
-  Moderna: 0 drugs
-  Johnson & Johnson: 17 drugs
-  AbbVie: 15 drugs
-  Eli Lilly: 0 drugs
+  AbbVie: 13 drugs
   Sanofi: 12 drugs
+  Bristol Myers Squibb: 1 drugs
+  AstraZeneca: 20 drugs
+  Eli Lilly: 1 drugs
+  GlaxoSmithKline (GSK): 9 drugs
   Bayer: 0 drugs
+  Amgen: 0 drugs
   Takeda Pharmaceutical: 0 drugs
-  Daiichi Sankyo: 0 drugs
-  Astellas Pharma: 0 drugs
   Boehringer Ingelheim: 0 drugs
-  Alnylam Pharmaceuticals: 0 drugs
-  Illumina: 0 drugs
-  Merck KGaA: 10 drugs
-  GlaxoSmithKline (GSK): 12 drugs
+  Moderna: 0 drugs
+  Regeneron Pharmaceuticals: 12 drugs
   CSL: 0 drugs
   Biogen: 0 drugs
+  Vertex Pharmaceuticals: 0 drugs
+  Gilead Sciences: 0 drugs
+  Seagen: 0 drugs
+  BeiGene: 7 drugs
+  Incyte: 0 drugs
+  Alnylam Pharmaceuticals: 0 drugs
+  Daiichi Sankyo: 0 drugs
+  Merck KGaA: 0 drugs
+  BioNTech: 0 drugs
+  Astellas Pharma: 0 drugs
+  Illumina: 0 drugs
+  FDA Drug Label API: 6 drugs
+  half of all patients treated by causing: 0 drugs
+  midnight: 0 drugs
+  Hello Bello: 0 drugs
+  Do not administer in the same intravenous line concurrent with the other medicinal: 0 drugs
+  Major Pharmaceuticals: 0 drugs
+  Preparation and Administration Parenteral drug: 0 drugs
+  used under trademark license: 0 drugs
+  the symptoms of hypocalcemia and the importance of maintaining serum calcium levels with adequate calcium and activated vitamin: 0 drugs
+  AqVida GmbH: 0 drugs
+  Dr. Reddy's Laboratories Limited: 0 drugs
+  or patients taking other medicinal: 0 drugs
+  the concomitant use of SIMPONI ARIA and these biologic: 0 drugs
+  Redpharm Drug: 0 drugs
+  driving: 0 drugs
+  Zhuhai Beihai Biotech Co., Ltd.: 0 drugs
+  containing: 2 drugs
+  Waylis Therapeutics LLC: 0 drugs
+  Coupler LLC: 0 drugs
+  sanofi-aventis: 0 drugs
+  Avyxa Pharma, LLC: 0 drugs
+  BPI Labs LLC: 0 drugs
+  Eugia US LLC: 0 drugs
+  Teyro Labs Private Limited: 0 drugs
+  Apotex Corp.: 0 drugs
+  ANI Pharmaceuticals, Inc.: 0 drugs
+  Marlex Pharmaceuticals, Inc.: 0 drugs
+  Janssen Biotech, Inc: 0 drugs
+  KATHLEEN P. HUTTON, M.D., INC. A PROFESSIONAL CORPORATION: 0 drugs
+  Aurobindo Pharma Limited: 0 drugs
+  Preferred Pharmaceuticals Inc.: 0 drugs
+  Pfizer Laboratories Div Pfizer Inc: 1 drugs
+  GLENMARK PHARMACEUTICALS INC., USA: 0 drugs
+  Preferred Pharmaceuticals, Inc.: 0 drugs
+  Organon LLC: 1 drugs
+  GE Healthcare Inc.: 1 drugs
+  PHOENIX RX LLC: 0 drugs
+  Janssen Biotech, Inc.: 2 drugs
+  Amgen, Inc: 2 drugs
+  Daiichi Sankyo Inc.: 0 drugs
+  Genentech, Inc.: 3 drugs
+  Cephalon, Inc.: 0 drugs
+  Accord BioPharma Inc.: 0 drugs
+  Biocon Biologics Inc.: 0 drugs
+  CELLTRION USA, Inc.: 0 drugs
+  Bio-Thera Solutions, Ltd.: 0 drugs
+  Amneal Pharmaceuticals LLC: 1 drugs
+  REMEDYREPACK INC.: 0 drugs
+  Quallent Pharmaceuticals Health LLC: 0 drugs
+  Ascend Laboratories, LLC: 0 drugs
+  Aphena Pharma Solutions - Tennessee, LLC: 0 drugs
+  Bryant Ranch Prepack: 0 drugs
+  PD-Rx Pharmaceuticals, Inc.: 0 drugs
+  A-S Medication Solutions: 0 drugs
+  RedPharm Drug, Inc.: 0 drugs
+  Cardinal Health 107, LLC: 0 drugs
+  ScieGen Pharmaceuticals, Inc.: 0 drugs
+  NorthStar RxLLC: 0 drugs
+  Mylan Institutional Inc: 1 drugs
+  KLEIN TOOLS, INC.: 1 drugs
+  ProPharma Distribution: 0 drugs
+  AstraZeneca Pharmaceuticals LP: 1 drugs
+  sanofi-aventis U.S. LLC: 0 drugs
+  Valorum Biologics Inc: 0 drugs
+  Regeneron Pharmaceuticals, Inc: 0 drugs
+  Regeneron Pharmaceuticals, Inc.: 2 drugs
+  Autolus Inc.: 0 drugs
+  Kite Pharma, Inc.: 0 drugs
+  Adaptimmune LLC: 0 drugs
+  GlaxoSmithKline LLC: 1 drugs
+  Accord Healthcare, Inc.: 0 drugs
+  Hospira, Inc.: 0 drugs
+  Gland Pharma Limited: 0 drugs
+  Henry Schein, Inc.: 0 drugs

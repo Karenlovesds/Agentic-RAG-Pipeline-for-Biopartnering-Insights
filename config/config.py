@@ -15,9 +15,9 @@ class Settings(BaseSettings):
     openai_api_key: str = Field(..., env="OPENAI_API_KEY")
     
     # Model provider settings
-    model_provider: str = Field("openai", env="MODEL_PROVIDER")
-    chat_model: str = Field("gpt-4o-mini", env="CHAT_MODEL")
-    embed_model: str = Field("text-embedding-3-small", env="EMBED_MODEL")
+    model_provider: str = Field("ollama", env="MODEL_PROVIDER")
+    chat_model: str = Field("gpt-oss:20b", env="CHAT_MODEL")
+    embed_model: str = Field("nomic-embed-text", env="EMBED_MODEL")
     ollama_host: str = Field("http://localhost:11434", env="OLLAMA_HOST")
     
     # Database settings
