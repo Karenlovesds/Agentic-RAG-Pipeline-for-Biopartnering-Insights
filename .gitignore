@@ -61,6 +61,15 @@ data/Pipeline_Ground_Truth.xlsx
 data/*_ground_truth*.xlsx
 data/*_ground_truth*.csv
 
+# Documentation and analysis files
+docs/GROUND_TRUTH_UPDATE_GUIDE.md
+
+# Output files (generated data)
+outputs/company_overlap_analysis.csv
+outputs/drugs_dashboard.csv
+outputs/validation_report.txt
+outputs/validation_results.json
+
 # Docker
 .dockerignore
 

@@ -4,7 +4,7 @@ An intelligent, production-ready pipeline that automatically generates potential
 
 ## 🎯 Overview
 
-This pipeline automatically collects, processes, and analyzes biomedical data from trusted sources to provide actionable biopartnering insights. It's designed to help researchers, BD teams, and leadership make faster, more confident decisions with full transparency and auditability. The system is production-ready with automated monitoring, change detection, scheduled updates, and comprehensive business intelligence dashboards.
+This pipeline automatically collects, processes, and analyzes biomedical data from trusted sources to provide actionable biopartnering insights. It's designed to help researchers, data science teams, and leadership make faster, more confident decisions with full transparency and auditability. The system is production-ready with automated monitoring, change detection, scheduled updates, and comprehensive business intelligence dashboards.
 
 ## ✨ Key Features
 
@@ -13,7 +13,7 @@ This pipeline automatically collects, processes, and analyzes biomedical data fr
 - **📊 Comprehensive Knowledge Base**: Normalized entities with proper relationships and versioning (67 pipeline drugs, 291 ground truth drugs, 98 companies, 187 targets, 1,741 clinical trials, 4,971 documents)
 - **🧠 Enhanced RAG Agent**: Ground truth integration with business context, dual-provider support (OpenAI/Ollama), and cross-source validation
 - **🎨 Interactive UI**: Streamlit-based interface with comprehensive filtering and real-time monitoring
-- **📈 Standardized Outputs**: CSV exports for pipeline reviews and BD targeting
+- **📈 Standardized Outputs**: CSV exports for pipeline reviews and data science analysis
 - **🔍 Evaluation Framework**: RAGAS metrics and manual validation for reliability
 - **✅ Ground Truth Validation**: Comprehensive validation system comparing pipeline data against curated ground truth
 - **📊 Business Intelligence**: Advanced analytics dashboards for market analysis and business insights
