@@ -268,7 +268,10 @@ This is an automated error notification from the Biopartnering Insights Pipeline
             'data': data
         }
         
-        with open(self.notification_log, 'a') as f:
+        # Log to file
+        log_file = Path(self.notification_log)
+        log_file.parent.mkdir(exist_ok=True)
+        with open(log_file, 'a') as f:
             f.write(json.dumps(log_entry) + '\n')
 
 

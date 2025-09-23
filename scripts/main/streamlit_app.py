@@ -13,14 +13,14 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
 from src.models.database import get_db
-from src.models.entities import Document, Company, Drug, ClinicalTrial, Target, DrugTarget
+from src.models.entities import Document, Company, Drug, ClinicalTrial, Target, DrugTarget, Indication, DrugIndication
 from src.data_collection.orchestrator import DataCollectionOrchestrator
 from config.config import settings, get_target_companies
 from src.rag.provider import build_provider, OllamaProvider
 from src.rag.rag_agent import create_enhanced_basic_rag_agent
 from src.rag.models import DrugSearchQuery, ClinicalTrialSearchQuery, BiopartneringQuery
 from src.rag.cache_manager import RAGCacheManager
-from src.processing.csv_export import export_basic, export_drug_table
+# Removed unused import - dashboard loads data from CSV file directly
 from src.processing.pipeline import run_processing
 from src.evaluation.ragas_eval import evaluate_rag_agent
 from src.evaluation.feedback_analysis import (
@@ -33,6 +33,11 @@ from src.evaluation.feedback_analysis import (
     validate_feedback_data,
     get_feedback_insights
 )
+from src.validation.validation_dashboard import main_validation_dashboard
+from src.validation.ground_truth_dashboard import main_ground_truth_dashboard
+from src.analysis.overlap_dashboard import main_overlap_dashboard
+from src.analysis.market_analysis_dashboard import main_market_analysis_dashboard
+from src.analysis.ticket_analysis_dashboard import main_ticket_analysis_dashboard
 
 
 # Page configuration
@@ -243,8 +248,51 @@ def get_database_stats():
 
 
 def load_drugs_from_database():
-    """Load drugs data directly from database with targets and company info."""
+    """Load drugs data from drugs_dashboard.csv which has more complete data."""
     try:
+        # Try to load from drugs_dashboard.csv first (has more complete data)
+        csv_path = "outputs/drugs_dashboard.csv"
+        if Path(csv_path).exists():
+            df = pd.read_csv(csv_path)
+            
+            # Rename columns to match expected format
+            column_mapping = {
+                'FDA approval status': 'FDA Status',
+                'Approval date': 'FDA Approval',
+                'Drug class': 'Drug Class',
+                'Target(s)': 'Target',
+                'Mechanism of action': 'Mechanism of Action',
+                'Indications': 'Indication Approved',
+                'Current clinical trials': 'Current Clinical Trials'
+            }
+            df = df.rename(columns=column_mapping)
+            
+            # Convert FDA approval status to more readable format
+            df['FDA Approval'] = df['FDA Approval'].fillna('')
+            if 'FDA Status' in df.columns:
+                df['FDA Status'] = df['FDA Status'].map({'Y': 'Yes', 'N': 'No'}).fillna('Unknown')
+            
+            # Ensure targets are uppercase
+            df['Target'] = df['Target'].str.upper()
+            
+            # Reorder columns to match expected format
+            expected_columns = [
+                'Company name', 'Generic name', 'Brand name', 'FDA Approval', 
+                'Drug Class', 'Target', 'Mechanism of Action', 
+                'Indication Approved', 'Current Clinical Trials'
+            ]
+            
+            # Add missing columns with empty values
+            for col in expected_columns:
+                if col not in df.columns:
+                    df[col] = ''
+            
+            # Reorder columns
+            df = df[expected_columns]
+            
+            return df
+        
+        # Fallback to database if CSV doesn't exist
         db = get_db()
         
         # Query drugs with company information
@@ -259,30 +307,47 @@ def load_drugs_from_database():
             ).all()
             target_names = [t.name for t in targets]
             
-            # Get clinical trials for this drug
+            # Get clinical trials for this drug (exclude completed trials)
             clinical_trials = db.query(ClinicalTrial).filter(
-                ClinicalTrial.drug_id == drug.id
+                ClinicalTrial.drug_id == drug.id,
+                ClinicalTrial.status != "Completed"
             ).all()
             
             # Format clinical trials
             trial_summaries = []
             for trial in clinical_trials:
-                parts = [
-                    (trial.title or "").strip(),
-                    (trial.phase or "").strip(),
-                    (trial.status or "").strip(),
-                ]
-                trial_summaries.append(" | ".join([p for p in parts if p]))
+                # Create a more readable format
+                title = (trial.title or "").strip()
+                phase = (trial.phase or "Unknown").strip()
+                status = (trial.status or "Unknown").strip()
+                nct_id = (trial.nct_id or "").strip()
+                
+                # Format: "Title (NCT ID) | Phase | Status"
+                if title and nct_id:
+                    trial_summary = f"{title} ({nct_id}) | {phase} | {status}"
+                elif title:
+                    trial_summary = f"{title} | {phase} | {status}"
+                else:
+                    trial_summary = f"Clinical Trial: {nct_id} | {phase} | {status}"
+                
+                trial_summaries.append(trial_summary)
+            
+            # Get approved indications for this drug
+            approved_indications = db.query(Indication).join(DrugIndication).filter(
+                DrugIndication.drug_id == drug.id,
+                DrugIndication.approval_status == True
+            ).all()
+            indication_names = [ind.name for ind in approved_indications]
             
             drug_data.append({
                 'Generic name': drug.generic_name,
                 'Brand name': drug.brand_name or '',
                 'Drug Class': drug.drug_class or '',
-                'FDA Approval Date': drug.fda_approval_date.strftime('%Y-%m-%d') if drug.fda_approval_date else '',
+                'FDA Approval': drug.fda_approval_date.strftime('%Y-%m-%d') if drug.fda_approval_date else '',
                 'Company name': drug.company.name if drug.company else '',
-                'Target': ', '.join(target_names) if target_names else '',
+                'Target': ' | '.join([t.name.upper() for t in targets]) if targets else '',
                 'Mechanism of Action': drug.mechanism_of_action or '',
-                'Indication Approved': '',  # Would need to join with indications table
+                'Indication Approved': ' | '.join(indication_names) if indication_names else '',
                 'Current Clinical Trials': '; '.join(trial_summaries) if trial_summaries else ''
             })
         
@@ -305,7 +370,7 @@ def main():
         st.header("Navigation")
         page = st.selectbox(
             "Select Page",
-            ["Dashboard", "Data Collection", "RAG Agent", "Results", "Evaluation", "Settings"]
+            ["Dashboard", "Data Collection", "RAG Agent", "Results", "Evaluation", "Validation", "Ground Truth", "Overlap Analysis", "Market Analysis", "Business Analysis", "Settings"]
         )
         
         st.header("Database Status")
@@ -357,6 +422,16 @@ def main():
         show_results()
     elif page == "Evaluation":
         show_evaluation()
+    elif page == "Validation":
+        show_validation()
+    elif page == "Ground Truth":
+        show_ground_truth()
+    elif page == "Overlap Analysis":
+        show_overlap_analysis()
+    elif page == "Market Analysis":
+        show_market_analysis()
+    elif page == "Business Analysis":
+        show_ticket_analysis()
     elif page == "Settings":
         show_settings()
 
@@ -414,70 +489,89 @@ def show_dashboard():
             with col3:
                 st.metric("Drugs with Brand Names", len(df[df['Brand name'].notna() & (df['Brand name'] != '')]))
             with col4:
-                st.metric("FDA Approved", len(df[df['FDA Approval Date'].notna() & (df['FDA Approval Date'] != '')]))
+                st.metric("FDA Approved", len(df[df['FDA Approval'].notna() & (df['FDA Approval'] != '')]))
             
             # Add filters
             st.subheader("🔍 Filter Options")
             
-            # Create filter columns (7 columns to accommodate all filters)
-            filter_col1, filter_col2, filter_col3, filter_col4, filter_col5, filter_col6, filter_col7 = st.columns(7)
+            # Create filter columns (8 columns to accommodate all filters)
+            filter_col1, filter_col2, filter_col3, filter_col4, filter_col5, filter_col6, filter_col7, filter_col8 = st.columns(8)
             
             with filter_col1:
+                # Company filter
+                if 'Company name' in df.columns:
+                    companies = ['All'] + sorted(df['Company name'].dropna().unique().tolist())
+                    selected_company = st.selectbox("By Company", companies)
+                    if selected_company != 'All':
+                        df = df[df['Company name'] == selected_company]
+            
+            with filter_col2:
                 # Generic name filter
-                generic_filter = st.text_input("Filter by Generic Name", placeholder="e.g., pembrolizumab")
+                generic_filter = st.text_input("By Generic Name", placeholder="e.g., pembrolizumab")
                 if generic_filter:
                     df = df[df['Generic name'].str.contains(generic_filter, case=False, na=False)]
             
-            with filter_col2:
+            with filter_col3:
                 # Brand name filter
-                brand_filter = st.text_input("Filter by Brand Name", placeholder="e.g., KEYTRUDA")
+                brand_filter = st.text_input("By Brand Name", placeholder="e.g., KEYTRUDA")
                 if brand_filter:
                     df = df[df['Brand name'].str.contains(brand_filter, case=False, na=False)]
             
-            with filter_col3:
+            with filter_col4:
                 # Drug class filter
                 if 'Drug Class' in df.columns:
                     drug_classes = ['All'] + sorted(df['Drug Class'].dropna().unique().tolist())
-                    selected_class = st.selectbox("Filter by Drug Class", drug_classes)
+                    selected_class = st.selectbox("By Drug Class", drug_classes)
                     if selected_class != 'All':
                         df = df[df['Drug Class'] == selected_class]
             
-            with filter_col4:
+            with filter_col5:
                 # Target filter
                 if 'Target' in df.columns:
                     targets = ['All'] + sorted(df['Target'].dropna().unique().tolist())
-                    selected_target = st.selectbox("Filter by Target", targets)
+                    selected_target = st.selectbox("By Target", targets)
                     if selected_target != 'All':
                         df = df[df['Target'] == selected_target]
             
-            with filter_col5:
-                # FDA approval filter
-                if 'FDA Approval Date' in df.columns:
-                    fda_options = ['All', 'Has Approval Date', 'No Approval Date']
-                    fda_filter = st.selectbox("Filter by FDA Status", fda_options)
-                    if fda_filter == 'Has Approval Date':
-                        df = df[df['FDA Approval Date'].notna() & (df['FDA Approval Date'] != '')]
-                    elif fda_filter == 'No Approval Date':
-                        df = df[df['FDA Approval Date'].isna() | (df['FDA Approval Date'] == '')]
-            
             with filter_col6:
+                # FDA approval filter
+                if 'FDA Approval' in df.columns:
+                    fda_options = ['All', 'Has Approval Date', 'No Approval Date']
+                    fda_filter = st.selectbox("By FDA Status", fda_options)
+                    if fda_filter == 'Has Approval Date':
+                        df = df[df['FDA Approval'].notna() & (df['FDA Approval'] != '')]
+                    elif fda_filter == 'No Approval Date':
+                        df = df[df['FDA Approval'].isna() | (df['FDA Approval'] == '')]
+            
+            with filter_col7:
                 # Approved indication filter
                 if 'Indication Approved' in df.columns:
-                    indication_filter = st.text_input("Filter by Approved Indication", placeholder="e.g., cancer, diabetes")
+                    indication_filter = st.text_input("By Approved Indication", placeholder="e.g., cancer, diabetes")
                     if indication_filter:
                         df = df[df['Indication Approved'].str.contains(indication_filter, case=False, na=False)]
             
-            with filter_col7:
+            with filter_col8:
                 # Current clinical trials filter
                 if 'Current Clinical Trials' in df.columns:
-                    trial_filter = st.text_input("Filter by Current Clinical Trial", placeholder="e.g., NCT12345678")
+                    trial_filter = st.text_input("By Current Clinical Trial", placeholder="e.g., NCT12345678")
                     if trial_filter:
                         df = df[df['Current Clinical Trials'].str.contains(trial_filter, case=False, na=False)]
             
-            # Show filtered results
-            st.subheader(f"💊 Biopharma Drugs ({len(df)} results)")
+            # Show filtered results with enhanced display
+            st.subheader(f"💊 Biopharma Drugs Data ({len(df)} results)")
             
             if len(df) > 0:
+                # Show basic stats
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Total Drugs", len(df))
+                with col2:
+                    st.metric("Companies", len(df['Company name'].unique()) if 'Company name' in df.columns else 0)
+                with col3:
+                    st.metric("Drugs with Brand Names", len(df[df['Brand name'].notna() & (df['Brand name'] != '')]))
+                with col4:
+                    st.metric("FDA Approved", len(df[df['FDA Approval'].notna() & (df['FDA Approval'] != '')]))
+                
                 # Show table with filters
                 st.dataframe(df, use_container_width=True)
                 
@@ -1023,7 +1117,7 @@ def show_results():
     
     # Check if CSV files exist
     csv_files = {
-        "Biopharma Drugs": "outputs/biopharma_drugs.csv",
+        "Biopharma Drugs": "outputs/drugs_dashboard.csv",
         "Drug Collection Summary": "outputs/drug_collection_summary.txt"
     }
     
@@ -1032,42 +1126,24 @@ def show_results():
     
     for name, file_path in csv_files.items():
         if Path(file_path).exists():
-            st.success(f"✅ {name}: {file_path}")
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.success(f"✅ {name}: {file_path}")
+            with col2:
+                if name == "Biopharma Drugs":
+                    with open(file_path, "rb") as f:
+                        st.download_button(
+                            "📥 Download CSV",
+                            f,
+                            file_name="drugs_dashboard.csv",
+                            mime="text/csv",
+                            key=f"download_{name.replace(' ', '_').lower()}"
+                        )
         else:
             st.warning(f"❌ {name}: {file_path} (not found)")
     
-    # Display biopharma_drugs.csv if it exists
-    if Path("outputs/biopharma_drugs.csv").exists():
-        st.subheader("💊 Biopharma Drugs Data")
-        
-        try:
-            df = pd.read_csv("outputs/biopharma_drugs.csv")
-            
-            # Show basic stats
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Total Drugs", len(df))
-            with col2:
-                st.metric("Companies", len(df['Company name'].unique()) if 'Company name' in df.columns else 0)
-            with col3:
-                st.metric("Drugs with Brand Names", len(df[df['Brand name'].notna() & (df['Brand name'] != '')]))
-            with col4:
-                st.metric("FDA Approved", len(df[df['FDA Approval Date'].notna() & (df['FDA Approval Date'] != '')]))
-            
-            # Display the data
-            st.dataframe(df, use_container_width=True)
-            
-            # Download button
-            csv_data = df.to_csv(index=False)
-            st.download_button(
-                label="📥 Download Biopharma Drugs CSV",
-                data=csv_data,
-                file_name=f"biopharma_drugs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
-            )
-            
-        except Exception as e:
-            st.error(f"Error loading CSV: {e}")
+    # Note: Biopharma Drugs Data table is now available in the Dashboard page with filtering capabilities
+    st.info("💡 **Note**: The comprehensive Biopharma Drugs Data table with filtering capabilities is now available in the **Dashboard** page.")
     
     # Display drug collection summary if it exists (includes pipeline drugs)
     if Path("outputs/drug_collection_summary.txt").exists():
@@ -1099,18 +1175,15 @@ def show_results():
     with col1:
         if st.button("📊 Export Drug Table", type="primary"):
             try:
-                export_drug_table("outputs/drug_table_export.csv")
+                from src.processing.csv_export import export_drugs_dashboard
+                db = get_db()
+                export_drugs_dashboard(db, "outputs/drug_table_export.csv")
                 st.success("✅ Drug table exported successfully!")
             except Exception as e:
                 st.error(f"Export error: {e}")
     
     with col2:
-        if st.button("📋 Export Basic Data"):
-            try:
-                export_basic("outputs/basic_export.csv")
-                st.success("✅ Basic data exported successfully!")
-            except Exception as e:
-                st.error(f"Export error: {e}")
+        st.info("📊 Use the 'Export standardized CSV' button below for data export")
 
 
 def show_settings():
@@ -1135,8 +1208,9 @@ def show_settings():
         st.write("\n**Exports**")
         if st.button("Export standardized CSV"):
             try:
+                from src.processing.csv_export import export_drugs_dashboard
                 db = get_db()
-                out_path = export_basic(db, "outputs/biopartnering_data.csv")
+                out_path = export_drugs_dashboard(db, "outputs/biopartnering_data.csv")
                 with open(out_path, "rb") as f:
                     st.download_button("Download CSV", f, file_name="biopartnering_data.csv", mime="text/csv")
             except Exception as e:
@@ -1144,21 +1218,25 @@ def show_settings():
         if st.button("Export drug table (requested schema)"):
             try:
                 db = get_db()
-                out_path = export_drug_table(db, "outputs/biopharma_drugs.csv")
+                out_path = export_drugs_dashboard(db, "outputs/drugs_dashboard.csv")
                 with open(out_path, "rb") as f:
-                    st.download_button("Download Drug CSV", f, file_name="biopharma_drugs.csv", mime="text/csv")
+                    st.download_button("Download Drug CSV", f, file_name="drugs_dashboard.csv", mime="text/csv")
             except Exception as e:
                 st.error(f"Export failed: {e}")
     
     st.subheader("Target Companies")
-    st.write("Currently tracking the following companies:")
     
-    # Display companies in a grid (CSV-backed with fallback)
+    # Display companies from CSV
     tracked_companies = get_target_companies()
-    cols = st.columns(3)
-    for i, company in enumerate(tracked_companies):
-        with cols[i % 3]:
-            st.write(f"• {company}")
+    if not tracked_companies:
+        st.warning("⚠️ No companies found in companies.csv file. Please add companies to the CSV file to enable data collection.")
+        st.info("The companies.csv file should have a 'Company' column with company names.")
+    else:
+        st.write(f"Currently tracking {len(tracked_companies)} companies:")
+        cols = st.columns(3)
+        for i, company in enumerate(tracked_companies):
+            with cols[i % 3]:
+                st.write(f"• {company}")
     
     # Cache Management Section
     st.subheader("RAG Cache Management")
@@ -1388,6 +1466,164 @@ def show_evaluation():
     **Using Ollama**: This evaluation uses local Ollama models instead of requiring OpenAI API keys,
     making it more cost-effective and privacy-friendly for evaluation purposes.
     """)
+
+
+def show_validation():
+    """Show validation page."""
+    st.header("🔍 Ground Truth Validation")
+    
+    # Add refresh button
+    col1, col2, col3 = st.columns([1, 1, 3])
+    with col1:
+        if st.button("🔄 Refresh Validation", type="primary"):
+            # Run the validation script to get fresh data
+            import subprocess
+            import sys
+            
+            with st.spinner("Running validation..."):
+                try:
+                    # Run validation directly
+                    from run_pipeline import run_validation
+                    run_validation(
+                        db_path="biopartnering_insights.db",
+                        gt_path="data/Pipeline_Ground_Truth.xlsx",
+                        output_dir="outputs",
+                        verbose=True
+                    )
+                    result = type('obj', (object,), {'returncode': 0, 'stdout': 'Validation completed', 'stderr': ''})()
+                    
+                    if result.returncode == 0:
+                        st.success("✅ Validation completed successfully!")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Validation failed: {result.stderr}")
+                except subprocess.TimeoutExpired:
+                    st.error("⏰ Validation timed out")
+                except Exception as e:
+                    st.error(f"❌ Error running validation: {str(e)}")
+    
+    with col2:
+        if st.button("📊 View Results Only"):
+            st.rerun()
+    
+    with col3:
+        st.info("This page shows validation results comparing pipeline data against ground truth.")
+    
+    # Check if validation data exists, if not, suggest running validation
+    try:
+        import json
+        with open("outputs/validation_results.json", "r") as f:
+            validation_data = json.load(f)
+        if not validation_data:
+            st.warning("⚠️ No validation data found. Click 'Refresh Validation' to generate fresh data.")
+            return
+    except FileNotFoundError:
+        st.warning("⚠️ No validation data found. Click 'Refresh Validation' to generate fresh data.")
+        return
+    
+    # Run validation dashboard
+    main_validation_dashboard()
+
+
+def show_ground_truth():
+    """Show ground truth page."""
+    st.header("📋 Ground Truth Data")
+    
+    # Add refresh button
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        if st.button("🔄 Refresh Data", type="primary"):
+            st.rerun()
+    
+    with col2:
+        st.info("This page displays the ground truth data with comprehensive filtering and analytics.")
+    
+    # Run ground truth dashboard
+    main_ground_truth_dashboard()
+
+
+def show_overlap_analysis():
+    """Show overlap analysis page."""
+    st.header("🔍 Company Overlap Analysis")
+    
+    col1, col2, col3 = st.columns([1, 1, 3])
+    with col1:
+        if st.button("🔄 Refresh Analysis", type="primary"):
+            # Run the overlap analysis script to get fresh data
+            import subprocess
+            import sys
+            
+            with st.spinner("Running overlap analysis..."):
+                try:
+                    # Run overlap analysis directly
+                    from run_pipeline import run_overlap_analysis
+                    run_overlap_analysis(
+                        db_path="biopartnering_insights.db",
+                        gt_path="data/Pipeline_Ground_Truth.xlsx",
+                        output_dir="outputs",
+                        verbose=True
+                    )
+                    result = type('obj', (object,), {'returncode': 0, 'stdout': 'Overlap analysis completed', 'stderr': ''})()
+                    
+                    if result.returncode == 0:
+                        st.success("✅ Overlap analysis completed successfully!")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Overlap analysis failed: {result.stderr}")
+                except subprocess.TimeoutExpired:
+                    st.error("⏰ Overlap analysis timed out")
+                except Exception as e:
+                    st.error(f"❌ Error running overlap analysis: {str(e)}")
+    
+    with col2:
+        if st.button("📊 View Results Only"):
+            st.rerun()
+    
+    with col3:
+        st.info("This page analyzes companies that exist in both Ground Truth and Pipeline data for quality control purposes.")
+    
+    # Check if overlap data exists, if not, suggest running analysis
+    try:
+        import pandas as pd
+        df = pd.read_csv("outputs/company_overlap_analysis.csv")
+        if df.empty:
+            st.warning("⚠️ No overlap data found. Click 'Refresh Analysis' to generate fresh data.")
+            return
+    except FileNotFoundError:
+        st.warning("⚠️ No overlap data found. Click 'Refresh Analysis' to generate fresh data.")
+        return
+    
+    main_overlap_dashboard()
+
+
+def show_market_analysis():
+    """Show market analysis page."""
+    st.header("📈 Market Analysis")
+    
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        if st.button("🔄 Refresh Analysis", type="primary"):
+            st.rerun()
+    
+    with col2:
+        st.info("This page provides comprehensive market analysis using Ground Truth data for validated insights.")
+    
+    main_market_analysis_dashboard()
+
+
+def show_ticket_analysis():
+    """Show ticket analysis page."""
+    st.header("📊 Business Analysis")
+    
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        if st.button("🔄 Refresh Analysis", type="primary"):
+            st.rerun()
+    
+    with col2:
+        st.info("This page analyzes company ticket requests vs drug portfolio to optimize time allocation and analysis priorities.")
+    
+    main_ticket_analysis_dashboard()
 
 
 if __name__ == "__main__":

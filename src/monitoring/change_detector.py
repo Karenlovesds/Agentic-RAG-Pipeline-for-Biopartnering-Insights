@@ -26,13 +26,6 @@ class WebsiteChangeDetector:
         
         # Define websites to monitor
         self.monitored_sites = {
-            "merck_pipeline": "https://www.merck.com/pipeline",
-            "merck_research": "https://www.merck.com/research", 
-            "bms_pipeline": "https://www.bms.com/pipeline",
-            "bms_research": "https://www.bms.com/research",
-            "roche_pipeline": "https://www.roche.com/pipeline",
-            "astrazeneca_pipeline": "https://www.astrazeneca.com/pipeline",
-            "pfizer_pipeline": "https://www.pfizer.com/pipeline",
             "fda_drug_approvals": "https://api.fda.gov/drug/label.json",
             "clinical_trials": "https://clinicaltrials.gov/api/v2/studies"
         }
@@ -186,7 +179,6 @@ class WebsiteChangeDetector:
         # Save to log file
         log_file = Path("logs/pipeline_updates.jsonl")
         log_file.parent.mkdir(exist_ok=True)
-        
         with open(log_file, 'a') as f:
             f.write(json.dumps(update_log) + '\n')
         

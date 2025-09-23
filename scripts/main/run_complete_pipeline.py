@@ -8,6 +8,7 @@ to skip steps when no changes are detected, making it efficient for production u
 
 import asyncio
 import sys
+import os
 import hashlib
 import json
 from pathlib import Path
@@ -22,7 +23,7 @@ from src.models.database import get_db
 from src.models.entities import Drug, Document, ClinicalTrial, Company
 from src.data_collection.orchestrator import DataCollectionOrchestrator
 from src.processing.pipeline import run_processing
-from src.processing.csv_export import export_drug_table, export_basic
+from src.processing.csv_export import export_drugs_dashboard
 from sqlalchemy.orm import Session
 
 
@@ -47,6 +48,8 @@ class PipelineStateManager:
             "data_collection": {},
             "processing": {},
             "exports": {},
+            "validation": {},
+            "overlap_analysis": {},
             "database_stats": {}
         }
     
@@ -60,21 +63,31 @@ class PipelineStateManager:
     
     def get_database_hash(self) -> str:
         """Generate hash of current database state."""
+        # Check if database file exists
+        if not os.path.exists("biopartnering_insights.db"):
+            logger.info("Database file does not exist, forcing refresh")
+            return "no_database"
+        
         db = get_db()
         try:
-            # Get counts and last update times
-            stats = {
-                "companies": db.query(Company).count(),
-                "drugs": db.query(Drug).count(),
-                "documents": db.query(Document).count(),
-                "trials": db.query(ClinicalTrial).count(),
-                "last_document": db.query(Document).order_by(Document.created_at.desc()).first(),
-                "last_drug": db.query(Drug).order_by(Drug.created_at.desc()).first(),
-            }
-            
-            # Create hash from stats
-            stats_str = json.dumps(stats, default=str, sort_keys=True)
-            return hashlib.md5(stats_str.encode()).hexdigest()
+            # Check if tables exist by trying to query them
+            try:
+                # Get counts and last update times
+                stats = {
+                    "companies": db.query(Company).count(),
+                    "drugs": db.query(Drug).count(),
+                    "documents": db.query(Document).count(),
+                    "trials": db.query(ClinicalTrial).count(),
+                    "last_document": db.query(Document).order_by(Document.created_at.desc()).first(),
+                    "last_drug": db.query(Drug).order_by(Drug.created_at.desc()).first(),
+                }
+                
+                # Create hash from stats
+                stats_str = json.dumps(stats, default=str, sort_keys=True)
+                return hashlib.md5(stats_str.encode()).hexdigest()
+            except Exception as e:
+                logger.info(f"Database tables don't exist yet: {e}")
+                return "no_tables"
         finally:
             db.close()
     
@@ -82,6 +95,11 @@ class PipelineStateManager:
         """Check if data has changed since last run for a specific step."""
         current_hash = self.get_database_hash()
         last_hash = self.state.get("database_stats", {}).get("hash")
+        
+        # Force refresh if database doesn't exist or tables don't exist
+        if current_hash in ["no_database", "no_tables"]:
+            logger.info(f"Force refresh for step: {step} (database/tables not initialized)")
+            return True
         
         if last_hash != current_hash:
             logger.info(f"Data change detected for step: {step}")
@@ -117,12 +135,12 @@ class CompletePipeline:
         self.state_manager = PipelineStateManager()
         self.orchestrator = DataCollectionOrchestrator()
     
-    async def run_data_collection(self) -> Dict[str, int]:
+    async def run_data_collection(self, force_refresh: bool = False) -> Dict[str, int]:
         """Run data collection with change detection."""
         logger.info("=== DATA COLLECTION PHASE ===")
         
         # Check if we need to run data collection
-        if not self.state_manager.has_data_changed("data_collection"):
+        if not force_refresh and not self.state_manager.has_data_changed("data_collection"):
             logger.info("⏭️  Skipping data collection - no changes detected")
             return {"skipped": True}
         
@@ -142,12 +160,12 @@ class CompletePipeline:
             self.state_manager.update_step_state("data_collection", False, {"error": str(e)})
             raise
     
-    def run_processing(self) -> Dict[str, int]:
+    def run_processing(self, force_refresh: bool = False) -> Dict[str, int]:
         """Run processing pipeline with change detection."""
         logger.info("=== PROCESSING PHASE ===")
         
         # Check if we need to run processing
-        if not self.state_manager.has_data_changed("processing"):
+        if not force_refresh and not self.state_manager.has_data_changed("processing"):
             logger.info("⏭️  Skipping processing - no changes detected")
             return {"skipped": True}
         
@@ -180,7 +198,7 @@ class CompletePipeline:
         
         try:
             # Run maintenance
-            from scripts.maintenance.maintenance_orchestrator import run_maintenance
+            from src.maintenance.maintenance_orchestrator import run_maintenance
             results = await run_maintenance()
             logger.info(f"✅ Maintenance completed: {results['successful_tasks']}/{results['total_tasks']} tasks successful")
             
@@ -193,12 +211,12 @@ class CompletePipeline:
             self.state_manager.update_step_state("maintenance", False, {"error": str(e)})
             raise
     
-    def run_exports(self) -> Dict[str, str]:
+    def run_exports(self, force_refresh: bool = False) -> Dict[str, str]:
         """Run CSV exports with change detection."""
         logger.info("=== EXPORT PHASE ===")
         
         # Check if we need to run exports
-        if not self.state_manager.has_data_changed("exports"):
+        if not force_refresh and not self.state_manager.has_data_changed("exports"):
             logger.info("⏭️  Skipping exports - no changes detected")
             return {"skipped": True}
         
@@ -209,15 +227,10 @@ class CompletePipeline:
             # Run exports
             db = get_db()
             try:
-                # Export drug table
-                drug_file = "outputs/biopharma_drugs.csv"
-                export_drug_table(db, drug_file)
-                logger.info(f"✅ Drug table exported: {drug_file}")
-                
-                # Export basic data
-                basic_file = "outputs/basic_export.csv"
-                export_basic(db, basic_file)
-                logger.info(f"✅ Basic data exported: {basic_file}")
+                # Export drugs dashboard data
+                drugs_file = "outputs/drugs_dashboard.csv"
+                export_drugs_dashboard(db, drugs_file)
+                logger.info(f"✅ Drugs dashboard data exported: {drugs_file}")
                 
                 # Generate drug collection summary
                 summary_file = "outputs/drug_collection_summary.txt"
@@ -226,8 +239,7 @@ class CompletePipeline:
                 
                 # Update state
                 results = {
-                    "drug_table": drug_file,
-                    "basic_export": basic_file,
+                    "drugs_dashboard": drugs_file,
                     "drug_summary": summary_file,
                     "timestamp": datetime.now().isoformat()
                 }
@@ -392,6 +404,82 @@ class CompletePipeline:
         
         return any(drug_indicators)
 
+    def run_validation(self, force_refresh: bool = False) -> Dict[str, Any]:
+        """Run ground truth validation with change detection."""
+        logger.info("=== VALIDATION PHASE ===")
+        
+        # Check if we need to run validation
+        if not force_refresh and not self.state_manager.has_data_changed("validation"):
+            logger.info("⏭️  Skipping validation - no changes detected")
+            return {"skipped": True}
+        
+        try:
+            # Run validation directly
+            from run_pipeline import run_validation
+            
+            # Run validation with default parameters
+            run_validation(
+                db_path="biopartnering_insights.db",
+                gt_path="data/Pipeline_Ground_Truth.xlsx", 
+                output_dir="outputs",
+                verbose=False
+            )
+            
+            logger.info("✅ Ground truth validation completed successfully")
+            
+            # Parse validation results if available
+            validation_results = {
+                "success": True,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            # Update state
+            self.state_manager.update_step_state("validation", True, validation_results)
+            return validation_results
+                
+        except Exception as e:
+            logger.error(f"❌ Validation failed: {e}")
+            self.state_manager.update_step_state("validation", False, {"error": str(e)})
+            return {"success": False, "error": str(e)}
+    
+    def run_overlap_analysis(self, force_refresh: bool = False) -> Dict[str, Any]:
+        """Run overlap analysis with change detection."""
+        logger.info("=== OVERLAP ANALYSIS PHASE ===")
+        
+        # Check if we need to run overlap analysis
+        if not force_refresh and not self.state_manager.has_data_changed("overlap_analysis"):
+            logger.info("⏭️  Skipping overlap analysis - no changes detected")
+            return {"skipped": True}
+        
+        try:
+            # Run overlap analysis directly
+            from run_pipeline import run_overlap_analysis
+            
+            # Run overlap analysis with default parameters
+            run_overlap_analysis(
+                db_path="biopartnering_insights.db",
+                gt_path="data/Pipeline_Ground_Truth.xlsx",
+                output_dir="outputs", 
+                verbose=False
+            )
+            
+            logger.info("✅ Overlap analysis completed successfully")
+            
+            # Parse overlap analysis results if available
+            overlap_results = {
+                "success": True,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            # Update state
+            self.state_manager.update_step_state("overlap_analysis", True, overlap_results)
+            return overlap_results
+                
+        except Exception as e:
+            logger.error(f"❌ Overlap analysis failed: {e}")
+            self.state_manager.update_step_state("overlap_analysis", False, {"error": str(e)})
+            return {"success": False, "error": str(e)}
+
     def get_pipeline_summary(self) -> Dict[str, Any]:
         """Get summary of pipeline execution."""
         db = get_db()
@@ -422,6 +510,8 @@ class CompletePipeline:
                 "data_collection": {},
                 "processing": {},
                 "exports": {},
+                "validation": {},
+                "overlap_analysis": {},
                 "database_stats": {}
             }
         
@@ -440,18 +530,28 @@ class CompletePipeline:
             
             # Step 2: Data Collection
             logger.info("📊 Step 2: Data Collection")
-            collection_results = await self.run_data_collection()
+            collection_results = await self.run_data_collection(force_refresh)
             results["steps"]["data_collection"] = collection_results
             
             # Step 3: Processing
             logger.info("⚙️  Step 3: Processing")
-            processing_results = self.run_processing()
+            processing_results = self.run_processing(force_refresh)
             results["steps"]["processing"] = processing_results
             
             # Step 4: Exports
             logger.info("📤 Step 4: Exports")
-            export_results = self.run_exports()
+            export_results = self.run_exports(force_refresh)
             results["steps"]["exports"] = export_results
+            
+            # Step 5: Validation
+            logger.info("🔍 Step 5: Ground Truth Validation")
+            validation_results = self.run_validation(force_refresh)
+            results["steps"]["validation"] = validation_results
+            
+            # Step 6: Overlap Analysis
+            logger.info("📊 Step 6: Overlap Analysis")
+            overlap_results = self.run_overlap_analysis(force_refresh)
+            results["steps"]["overlap_analysis"] = overlap_results
             
             # Get final summary
             results["summary"] = self.get_pipeline_summary()

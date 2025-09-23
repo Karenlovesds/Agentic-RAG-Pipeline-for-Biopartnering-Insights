@@ -3,7 +3,9 @@
 import schedule
 import time
 import threading
+import json
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional, Callable
 from loguru import logger
 from .change_detector import WebsiteChangeDetector
@@ -140,7 +142,6 @@ class PipelineScheduler:
         # Save to log file
         log_file = Path("logs/scheduled_runs.jsonl")
         log_file.parent.mkdir(exist_ok=True)
-        
         with open(log_file, 'a') as f:
             f.write(json.dumps(run_log) + '\n')
     
@@ -205,5 +206,6 @@ class PipelineScheduler:
 def create_scheduler(enable_monitoring: bool = True, enable_weekly_runs: bool = True) -> PipelineScheduler:
     """Create and configure a pipeline scheduler."""
     return PipelineScheduler(enable_monitoring, enable_weekly_runs)
+
 
 

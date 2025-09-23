@@ -4,7 +4,6 @@ Entity extraction module for processing collected documents and creating structu
 
 import re
 import json
-import csv
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from sqlalchemy.orm import Session
@@ -41,8 +40,13 @@ class EntityExtractor:
         
         for doc in documents:
             try:
-                # Extract clinical trials from any document that contains NCT codes
-                if "NCT" in doc.content:
+                # Extract clinical trials from clinical trials documents
+                if doc.source_type == "clinical_trials":
+                    self._extract_clinical_trial_entities(doc)
+                    stats["clinical_trials_created"] += 1
+                
+                # Also extract clinical trials from any document that contains NCT codes
+                elif "NCT" in doc.content:
                     self._extract_clinical_trial_entities(doc)
                     stats["clinical_trials_created"] += 1
                 
@@ -50,7 +54,7 @@ class EntityExtractor:
                     self._extract_company_entities(doc)
                     stats["companies_created"] += 1
                     
-                elif doc.source_type in ["fda_drug_approval", "fda_comprehensive_approval", "drugs_com_profile"]:
+                elif doc.source_type in ["fda_drug_approval", "drugs_com_profile"]:
                     self._extract_drug_entities(doc)
                     stats["drugs_created"] += 1
                     
@@ -144,21 +148,83 @@ class EntityExtractor:
                     # Find associated company
                     company = self._find_company_for_trial(trial_info, doc)
                     
-                    trial = ClinicalTrial(
-                        nct_id=nct_id,
-                        title=trial_info.get("title", ""),
-                        status=trial_info.get("status", ""),
-                        phase=trial_info.get("phase", ""),
-                        sponsor_id=company.id if company else None,
-                        study_population=json.dumps(trial_info.get("conditions", [])),
-                        primary_endpoints=json.dumps(trial_info.get("interventions", []))
-                    )
-                    self.db.add(trial)
-                    logger.info(f"Created clinical trial: {nct_id}")
+                    # Find associated drug
+                    drug = self._find_drug_for_trial(trial_info, doc)
+                    
+                    try:
+                        trial = ClinicalTrial(
+                            nct_id=nct_id,
+                            title=trial_info.get("title", ""),
+                            status=trial_info.get("status", ""),
+                            phase=trial_info.get("phase", ""),
+                            sponsor_id=company.id if company else None,
+                            drug_id=drug.id if drug else None,
+                            study_population=json.dumps(trial_info.get("conditions", [])),
+                            primary_endpoints=json.dumps(trial_info.get("interventions", []))
+                        )
+                        self.db.add(trial)
+                        self.db.flush()  # Flush immediately to catch duplicates
+                        logger.info(f"Created clinical trial: {nct_id} linked to drug: {drug.generic_name if drug else 'None'}")
+                    except Exception as e:
+                        if "UNIQUE constraint failed" in str(e):
+                            logger.debug(f"Trial {nct_id} already exists (race condition), skipping")
+                            self.db.rollback()
+                            continue
+                        else:
+                            raise
                     
             except Exception as e:
                 logger.error(f"Error processing NCT {nct_id}: {e}")
                 continue
+    
+    def _find_drug_for_trial(self, trial_info: dict, doc: Document) -> Optional[Drug]:
+        """Find the drug associated with a clinical trial."""
+        try:
+            # Extract drug name from trial title or content
+            title = trial_info.get("title", "")
+            content = doc.content
+            
+            # Look for drug names in the title
+            drug_name = self._extract_drug_name_from_trial_title(title)
+            if drug_name:
+                # Try to find exact match first
+                drug = self.db.query(Drug).filter(
+                    (Drug.generic_name.ilike(f"%{drug_name}%")) |
+                    (Drug.brand_name.ilike(f"%{drug_name}%"))
+                ).first()
+                if drug:
+                    return drug
+            
+            # If no exact match, try fuzzy matching with all drugs
+            all_drugs = self.db.query(Drug).all()
+            for drug in all_drugs:
+                if drug.generic_name and drug.generic_name.lower() in title.lower():
+                    return drug
+                if drug.brand_name and drug.brand_name.lower() in title.lower():
+                    return drug
+                    
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error finding drug for trial: {e}")
+            return None
+    
+    def _extract_drug_name_from_trial_title(self, title: str) -> Optional[str]:
+        """Extract drug name from clinical trial title."""
+        # Common patterns in clinical trial titles
+        patterns = [
+            r'Clinical Trial:\s*([^-\s]+)',
+            r'Study of\s+([^-\s]+)',
+            r'([A-Z][a-z]+)\s+Clinical Trial',
+            r'([A-Z][a-z]+)\s+Study'
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, title, re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+        
+        return None
     
     def _extract_company_name(self, title: str, content: str) -> Optional[str]:
         """Extract company name from title or content."""
@@ -184,6 +250,7 @@ class EntityExtractor:
                     "E.R. Squibb & Sons": "Bristol Myers Squibb",
                     "Bristol Myers Squibb Inc": "Bristol Myers Squibb",
                     "Bristol Myers Squibb": "Bristol Myers Squibb",
+                    "Genentech, Inc.": "Roche/Genentech",
                     "Genentech Inc": "Roche/Genentech",
                     "Genentech": "Roche/Genentech",
                     "AstraZeneca Pharmaceuticals": "AstraZeneca",
@@ -192,9 +259,14 @@ class EntityExtractor:
                     "Pfizer": "Pfizer",
                     "Novartis Pharmaceuticals": "Novartis",
                     "Novartis": "Novartis",
-                    "Gilead Sciences": "Gilead Sciences",
+                    "Amgen, Inc": "Amgen",
                     "Amgen Inc": "Amgen",
-                    "Amgen": "Amgen",
+                    "Daiichi Sankyo Inc.": "Daiichi Sankyo",
+                    "Cephalon, Inc.": "Cephalon",
+                    "Accord BioPharma Inc.": "Accord BioPharma",
+                    "Organon LLC": "Organon",
+                    "Biocon Biologics Inc.": "Biocon Biologics",
+                    "Gilead Sciences": "Gilead Sciences",
                     "Regeneron Pharmaceuticals": "Regeneron Pharmaceuticals",
                     "Regeneron": "Regeneron Pharmaceuticals",
                     "BioNTech SE": "BioNTech",
@@ -330,7 +402,7 @@ class EntityExtractor:
             if match:
                 name = match.group(1).strip()
                 # Filter out common false positives
-                if name.lower() not in ["the", "and", "or", "for", "with", "by", "fda", "drug", "label", "api"]:
+                if name.lower() not in ["the", "and", "or", "for", "with", "by", "fda", "drug", "label", "api", "com", "www", "http", "https", "the drug", "drug company", "drug label", "drug api"]:
                     return name
         
         return None
@@ -349,13 +421,28 @@ class EntityExtractor:
         """Extract drug information from company pipeline content."""
         drugs = []
         
-        # Known drug patterns from our previous extraction
+        # Enhanced drug patterns with comprehensive coverage
         drug_patterns = [
-            r"([A-Z][a-z]+(?:mab|nib|tinib|cept|zumab|ximab))",
+            # Monoclonal antibodies
+            r'\b([A-Z][a-z]+mab)\b',
+            r'\b([A-Z][a-z]+zumab)\b', 
+            r'\b([A-Z][a-z]+ximab)\b',
+            # Kinase inhibitors
+            r'\b([A-Z][a-z]+nib)\b',
+            r'\b([A-Z][a-z]+tinib)\b',
+            # Fusion proteins
+            r'\b([A-Z][a-z]+cept)\b',
+            # CAR-T therapies
+            r'\b([A-Z][a-z]+leucel)\b',
+            # ADCs
+            r'\b([A-Z][a-z]+\s+Deruxtecan)\b',
+            r'\b([A-Z][a-z]+\s+Vedotin)\b',
+            r'\b([A-Z][a-z]+\s+Tirumotecan)\b',
+            # Company codes
             r"(MK-\d+)",
             r"(RG\d+)",
-            r"([A-Z][a-z]+(?:deruxtecan|vedotin|tirumotecan))",
-            r"(pembrolizumab|nivolumab|sotatercept|patritumab|sacituzumab|zilovertamab|nemtabrutinib|quavonlimab|clesrovimab|ifinatamab|bezlotoxumab)",
+            # Comprehensive known drugs list
+            r'\b(Pembrolizumab|Nivolumab|Trastuzumab|Atezolizumab|Ipilimumab|Elotuzumab|Avelumab|Blinatumomab|Dupilumab|Ruxolitinib|Sotatercept|Nemtabrutinib|Quavonlimab|Clesrovimab|Bezlotoxumab|Patritumab|Sacituzumab|Zilovertamab|Ifinatamab|Tisagenlecleucel|Yescarta|Kymriah|Carvykti|Abecma|Breyanzi|Oleclumab|Tozorakimab|Osimertinib|Obinutuzumab|Epcoritamab|Upadacitinib|Elezanumab|Teplizumab|Frexalimab|Itepekimab|Rilzabrutinib|Amlitelimab|Bevacizumab|Lenvatinib|Datopotamab|Domvanalimab|Gefurulimab|Monalizumab|Sonesitatug|Ravagalimab|Pivekimab|Telisotuzumab|Lutikizumab|Budigalimab|Livmoniplimab|Risankizumab|Tolebrutinib)\b'
         ]
         
         found_drugs = set()
@@ -400,6 +487,14 @@ class EntityExtractor:
         # Extract mechanism of action
         mechanism = self._extract_mechanism_from_content(drug_name, content)
         
+        # Extract indications from FDA documents
+        indications = []
+        if doc.source_type == "fda_drug_approval" and fda_approved:
+            indications = self._extract_indications_from_fda_content(content)
+        
+        # Extract targets
+        targets = self._extract_targets_from_content(content, drug_name)
+        
         return {
             "generic_name": drug_name,
             "brand_name": self._extract_brand_name(content),
@@ -407,6 +502,8 @@ class EntityExtractor:
             "mechanism_of_action": mechanism,
             "fda_approval_status": fda_approved,
             "fda_approval_date": approval_date,
+            "indications": indications,
+            "targets": targets,
             "nct_codes": []
         }
     
@@ -414,8 +511,10 @@ class EntityExtractor:
         """Parse clinical trial information from documents."""
         content = doc.content
         
-        # Extract title
-        title = doc.title
+        # Extract title - prioritize official title from content
+        title = self._extract_official_title_from_content(content)
+        if not title:
+            title = doc.title
         if not title or len(title) < 10:
             title = self._extract_trial_title_from_content(content, nct_id)
         
@@ -439,6 +538,22 @@ class EntityExtractor:
             "conditions": conditions
         }
     
+    def _extract_official_title_from_content(self, content: str) -> Optional[str]:
+        """Extract official title from clinical trial content."""
+        # Look for "Official Title:" pattern
+        official_title_pattern = r'Official Title:\s*(.+?)(?:\n|$)'
+        match = re.search(official_title_pattern, content, re.IGNORECASE | re.MULTILINE)
+        if match:
+            return match.group(1).strip()
+        
+        # Look for "Title:" pattern as fallback
+        title_pattern = r'Title:\s*(.+?)(?:\n|$)'
+        match = re.search(title_pattern, content, re.IGNORECASE | re.MULTILINE)
+        if match:
+            return match.group(1).strip()
+        
+        return None
+    
     def _create_drug_entity(self, drug_info: Dict[str, Any], company_id: int):
         """Create a drug entity in the database."""
         # Check if drug already exists
@@ -455,6 +570,14 @@ class EntityExtractor:
             existing_drug.fda_approval_date = drug_info.get("fda_approval_date") or existing_drug.fda_approval_date
             existing_drug.nct_codes = drug_info.get("nct_codes", [])
             existing_drug.company_id = company_id
+            
+            # Add targets if provided
+            if drug_info.get("targets"):
+                self._add_drug_targets(existing_drug, drug_info["targets"])
+            
+            # Add indications if provided
+            if drug_info.get("indications"):
+                self._add_drug_indications(existing_drug, drug_info["indications"])
         else:
             # Create new drug
             drug = Drug(
@@ -469,6 +592,57 @@ class EntityExtractor:
                 created_at=datetime.utcnow()
             )
             self.db.add(drug)
+            self.db.flush()  # Flush to get the drug ID
+            
+            # Add targets if provided
+            if drug_info.get("targets"):
+                self._add_drug_targets(drug, drug_info["targets"])
+            
+            # Add indications if provided
+            if drug_info.get("indications"):
+                self._add_drug_indications(drug, drug_info["indications"])
+    
+    def _add_drug_indications(self, drug: Drug, indications: List[str]):
+        """Add indication relationships to a drug."""
+        for indication_name in indications:
+            # Get or create indication
+            indication = self._get_or_create_indication(indication_name)
+            
+            # Check if relationship already exists
+            existing_relationship = self.db.query(DrugIndication).filter(
+                DrugIndication.drug_id == drug.id,
+                DrugIndication.indication_id == indication.id
+            ).first()
+            
+            if not existing_relationship:
+                # Create new drug-indication relationship
+                drug_indication = DrugIndication(
+                    drug_id=drug.id,
+                    indication_id=indication.id,
+                    approval_status=True,  # FDA approved drugs have approved indications
+                    approval_date=drug.fda_approval_date
+                )
+                self.db.add(drug_indication)
+    
+    def _add_drug_targets(self, drug: Drug, targets: List[str]):
+        """Add target relationships to a drug."""
+        for target_name in targets:
+            # Get or create target
+            target = self._get_or_create_target(target_name)
+            
+            # Check if relationship already exists
+            existing_relationship = self.db.query(DrugTarget).filter(
+                DrugTarget.drug_id == drug.id,
+                DrugTarget.target_id == target.id
+            ).first()
+            
+            if not existing_relationship:
+                # Create new drug-target relationship
+                drug_target = DrugTarget(
+                    drug_id=drug.id,
+                    target_id=target.id
+                )
+                self.db.add(drug_target)
     
     def _create_relationships(self):
         """Create relationships between entities."""
@@ -509,7 +683,7 @@ class EntityExtractor:
         # Try title as fallback, but clean it up
         if title and len(title) < 100:
             # Remove common prefixes
-            clean_title = title.replace('FDA Approval History:', '').replace('FDA Drug Approval:', '').strip()
+            clean_title = title.replace('FDA Approval History:', '').replace('FDA Drug Approval:', '').replace('Drug Profile:', '').strip()
             if clean_title and len(clean_title) < 50:
                 return clean_title
         
@@ -694,6 +868,78 @@ class EntityExtractor:
         
         return None
     
+    def _extract_indications_from_fda_content(self, content: str) -> List[str]:
+        """Extract indications from FDA document content."""
+        indications = []
+        
+        # Look for the "INDICATIONS AND USAGE" section
+        indication_patterns = [
+            # Pattern 1: "indicated for the treatment of" - most specific
+            r"indicated\s+for\s+the\s+treatment\s+of\s+([^.]*?)(?:\n|\.|$)",
+            # Pattern 2: "for the treatment of" 
+            r"for\s+the\s+treatment\s+of\s+([^.]*?)(?:\n|\.|$)",
+            # Pattern 3: "treatment of" 
+            r"treatment\s+of\s+([^.]*?)(?:\n|\.|$)",
+            # Pattern 4: "indicated for" 
+            r"indicated\s+for\s+([^.]*?)(?:\n|\.|$)",
+            # Pattern 5: "is indicated" 
+            r"is\s+indicated\s+([^.]*?)(?:\n|\.|$)",
+            # Pattern 6: "are indicated" 
+            r"are\s+indicated\s+([^.]*?)(?:\n|\.|$)"
+        ]
+        
+        for pattern in indication_patterns:
+            matches = re.finditer(pattern, content, re.IGNORECASE | re.MULTILINE)
+            for match in matches:
+                indication_text = match.group(1).strip()
+                if indication_text and len(indication_text) > 10:  # Filter out very short matches
+                    # Clean up the indication text
+                    indication_text = re.sub(r'\s+', ' ', indication_text)  # Normalize whitespace
+                    indication_text = indication_text.strip('.,;:()[]{}')
+                    
+                    # Extract specific disease/condition names
+                    # Look for common cancer and disease patterns
+                    disease_patterns = [
+                        r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:cancer|carcinoma|lymphoma|leukemia|sarcoma|tumor|neoplasm|malignancy))',
+                        r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:syndrome|disease|disorder|condition))',
+                        r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:tuberculosis|infection|inflammation))',
+                        r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:hypertension|diabetes|arthritis))',
+                        r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:melanoma|breast|lung|prostate|colorectal|gastric|hepatocellular))',
+                        r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:T-cell|B-cell|non-small cell|small cell))',
+                        r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:cutaneous|metastatic|advanced|refractory))'
+                    ]
+                    
+                    for disease_pattern in disease_patterns:
+                        disease_matches = re.finditer(disease_pattern, indication_text, re.IGNORECASE)
+                        for disease_match in disease_matches:
+                            disease = disease_match.group(1).strip()
+                            if len(disease) > 5 and len(disease) < 100:  # Reasonable length
+                                indications.append(disease)
+                    
+                    # If no specific disease patterns found, try to extract meaningful phrases
+                    if not indications:
+                        # Split on common separators and clean each part
+                        parts = re.split(r'[,;]|\sand\s', indication_text)
+                        for part in parts:
+                            part = part.strip()
+                            if len(part) > 10 and len(part) < 100 and not part.lower().startswith(('see', 'refer', 'consult', 'note', 'warning')):
+                                # Clean up common prefixes/suffixes
+                                part = re.sub(r'^(for|in|with|to|the)\s+', '', part, flags=re.IGNORECASE)
+                                part = re.sub(r'\s+(in|with|for|to|patients|who|are|have)\s*$', '', part, flags=re.IGNORECASE)
+                                if len(part) > 10:
+                                    indications.append(part)
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_indications = []
+        for indication in indications:
+            indication_lower = indication.lower()
+            if indication_lower not in seen:
+                seen.add(indication_lower)
+                unique_indications.append(indication)
+        
+        return unique_indications
+    
     def _extract_nct_id(self, content: str) -> Optional[str]:
         """Extract first NCT ID from content."""
         pattern = r"NCT\d{8}"
@@ -847,7 +1093,7 @@ class EntityExtractor:
     
     def _validate_drug_name(self, name: str) -> bool:
         """Validate if a name is likely a drug name."""
-        if len(name) < 3 or len(name) > 100:
+        if not name or len(name) < 3 or len(name) > 100:
             return False
         
         # Filter out clinical trial IDs
@@ -858,7 +1104,7 @@ class EntityExtractor:
         if re.match(r'^(Lung|Breast|PanTumor|Prostate|GI|Ovarian|Esophageal)\d+$', name):
             return False
         
-        # Filter out generic protein/antibody terms (but be more specific)
+        # Filter out generic protein/antibody terms
         generic_terms = {
             'ig', 'igg1', 'igg2', 'igg3', 'igg4', 'igm', 'iga', 'parp1', 'parp2', 'parp3',
             'tyk2', 'cdh6', 'ror1', 'her3', 'trop2', 'pcsk9', 'ov65'
@@ -867,16 +1113,15 @@ class EntityExtractor:
         if name.lower() in generic_terms:
             return False
         
-        # Check if it contains only letters, numbers, and common drug characters
-        if not re.match(r'^[A-Za-z0-9\-\s\/\(\)]+$', name):
-            return False
-        
-        # Filter out common false positives (but be more specific)
+        # Filter out common false positives
         false_positives = {
             'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
             'is', 'was', 'are', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
             'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might',
-            'can', 'must', 'shall', 'accept', 'except', 'decline'
+            'can', 'must', 'shall', 'accept', 'except', 'decline', 'drug', 'conjugate',
+            'small', 'molecule', 'therapeutic', 'protein', 'bispecific', 'antibody',
+            'dose', 'combination', 'acquired', 'noted', 'except', 'as', 'was', 'is',
+            'being', 'an', 'a', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for'
         }
         
         if name.lower() in false_positives:
@@ -887,12 +1132,12 @@ class EntityExtractor:
         if any(name.endswith(ending) for ending in incomplete_endings):
             return False
         
-        # Filter out descriptive phrases (but be more specific)
+        # Filter out descriptive phrases
         descriptive_phrases = ['drug conjugate', 'small molecule', 'therapeutic protein', 'bispecific antibody', 'peptide']
         if any(phrase in name.lower() for phrase in descriptive_phrases):
             return False
         
-        # More inclusive positive indicators for drug names
+        # Positive indicators for actual drug names
         drug_indicators = [
             # Monoclonal antibodies
             name.lower().endswith(('mab', 'zumab', 'ximab')),
@@ -933,46 +1178,17 @@ class EntityExtractor:
         if name_lower.endswith(('mab', 'zumab', 'ximab')):
             return "Monoclonal Antibody"
         elif name_lower.endswith(('nib', 'tinib')):
-            return "Small Molecule"
-        elif 'deruxtecan' in name_lower or 'vedotin' in name_lower:
-            return "ADC"
+            return "Kinase Inhibitor"
+        elif name_lower.endswith('cept'):
+            return "Fusion Protein"
+        elif name_lower.endswith('leucel'):
+            return "CAR-T Therapy"
+        elif 'deruxtecan' in name_lower or 'vedotin' in name_lower or 'tirumotecan' in name_lower:
+            return "Antibody Drug Conjugate"
         elif name_lower.startswith('mk-') or name_lower.startswith('rg'):
             return "Small Molecule"
         else:
             return "Unknown"
-
-    def _load_companies_from_csv(self) -> List[Dict[str, str]]:
-        """Load companies data from CSV file."""
-        companies = []
-        try:
-            with open('data/companies.csv', 'r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    companies.append(row)
-        except Exception as e:
-            logger.error(f"Error loading companies CSV: {e}")
-        return companies
-
-    def _process_company_oncology_pipeline(self, company_data: Dict[str, str]):
-        """Process a company's oncology pipeline."""
-        company_name = company_data['Company']
-        pipeline_url = company_data['OncologyPipelineURL']
-        
-        # Get or create company
-        company = self._get_or_create_company(company_name, company_data['OfficialWebsite'])
-        
-        # Look for documents from this company's oncology pipeline
-        company_docs = self.db.query(Document).filter(
-            Document.source_url.like(f"%{company_name.lower()}%")
-        ).all()
-        
-        # If no specific documents found, create mock data based on known drugs
-        if not company_docs:
-            self._create_known_drugs_for_company(company)
-        else:
-            # Process existing documents
-            for doc in company_docs:
-                self._extract_drugs_from_document(doc, company)
 
     def _get_or_create_company(self, name: str, website: str) -> Company:
         """Get existing company or create new one."""
@@ -1308,13 +1524,40 @@ class EntityExtractor:
                 logger.error(f"Error processing target {target_name}: {e}")
                 continue
 
-    def _extract_targets_from_content(self, content: str) -> List[str]:
-        """Extract target names from document content."""
+    def _extract_targets_from_content(self, content: str, drug_name: str = None) -> List[str]:
+        """Extract target names from document content, focusing on drug-specific targets."""
         targets = []
+        
+        # Use known drug-target relationships based on drug names
+        if drug_name:
+            drug_targets = self._get_known_drug_targets(drug_name)
+            if drug_targets:
+                return drug_targets
+        
+        # If no known targets, try to extract from content with more specific patterns
         content_lower = content.lower()
         
-        # Common target patterns
-        target_patterns = [
+        # Look for drug-specific target mentions in content
+        if drug_name:
+            drug_specific_patterns = [
+                rf'{re.escape(drug_name.lower())}\s+(?:targets?|inhibits?|blocks?|binds? to)\s+([A-Z][a-z0-9-]+)',
+                rf'(?:targets?|inhibits?|blocks?|binds? to)\s+([A-Z][a-z0-9-]+)\s+.*{re.escape(drug_name.lower())}',
+                rf'{re.escape(drug_name.lower())}.*?(?:targets?|inhibits?|blocks?|binds? to)\s+([A-Z][a-z0-9-]+)',
+            ]
+            
+            for pattern in drug_specific_patterns:
+                matches = re.findall(pattern, content, re.IGNORECASE)
+                for match in matches:
+                    if isinstance(match, tuple):
+                        match = match[0]
+                    target_name = match.strip()
+                    if target_name and len(target_name) > 1:
+                        targets.append(target_name)
+        
+        # If still no targets found, use very specific patterns for common drug types
+        if not targets:
+            # Very specific target patterns for common drug types
+            target_patterns = [
             # Immune checkpoint targets
             r'PD-1',
             r'PD-L1', 
@@ -1413,11 +1656,11 @@ class EntityExtractor:
             r'PDGF[AB]?',
             r'FGF[0-9]?',
             
-            # Hormone receptors
-            r'ER[αβ]?',
-            r'PR',
-            r'AR',
-            r'GR',
+            # Hormone receptors (more specific patterns)
+            r'\bER[αβ]?\b',
+            r'\bPR\b',
+            r'\bAR\b', 
+            r'\bGR\b',
             
             # Cancer-specific targets
             r'BCMA',
@@ -1458,16 +1701,18 @@ class EntityExtractor:
             r'Phosphatase and Tensin Homolog'
         ]
         
-        for pattern in target_patterns:
-            matches = re.findall(pattern, content, re.IGNORECASE)
-            for match in matches:
-                if isinstance(match, tuple):
-                    match = match[0]  # Extract from tuple if needed
-                
-                # Clean up the target name
-                target_name = match.strip()
-                if target_name and len(target_name) > 1:
-                    targets.append(target_name)
+            for pattern in target_patterns:
+                matches = re.findall(pattern, content, re.IGNORECASE)
+                for match in matches:
+                    if isinstance(match, tuple):
+                        match = match[0]  # Extract from tuple if needed
+                    
+                    # Clean up the target name
+                    target_name = match.strip()
+                    if target_name and len(target_name) > 1:
+                        # Filter out common false positives
+                        if target_name.lower() not in ['er', 'pr', 'ar', 'gr', 'at', 'in', 'on', 'of', 'to', 'is', 'it', 'as', 'be', 'or', 'by', 'we', 'he', 'so', 'if', 'my', 'up', 'do', 'go', 'no', 'am', 'an', 'me', 'us', 'hi', 'oh', 'ok', 'ya', 'ye', 'yo']:
+                            targets.append(target_name)
         
         # Remove duplicates while preserving order
         seen = set()
@@ -1478,6 +1723,47 @@ class EntityExtractor:
                 unique_targets.append(target)
         
         return unique_targets
+
+    def _get_known_drug_targets(self, drug_name: str) -> List[str]:
+        """Get known drug-target relationships based on drug names."""
+        drug_name_lower = drug_name.lower()
+        
+        # Known drug-target relationships
+        drug_target_map = {
+            # Monoclonal antibodies
+            'bevacizumab': ['VEGF'],
+            'atezolizumab': ['PD-L1'],
+            'pembrolizumab': ['PD-1'],
+            'nivolumab': ['PD-1'],
+            'trastuzumab': ['HER2'],
+            'rituximab': ['CD20'],
+            'ipilimumab': ['CTLA-4'],
+            'durvalumab': ['PD-L1'],
+            'avelumab': ['PD-L1'],
+            'blinatumomab': ['CD19', 'CD3'],
+            'mosunetuzumab': ['CD20', 'CD3'],
+            'glofitamab': ['CD20', 'CD3'],
+            
+            # Small molecule inhibitors
+            'afatinib': ['EGFR', 'HER2'],
+            'alectinib': ['ALK'],
+            'cobimetinib': ['MEK'],
+            'vemurafenib': ['BRAF'],
+            'palbociclib': ['CDK4', 'CDK6'],
+            'olaparib': ['PARP'],
+            'giredestrant': ['ER'],
+            'inavolisib': ['PI3K'],
+            'entrectinib': ['ALK', 'ROS1', 'NTRK'],
+            'codrituzumab': ['CDH6'],
+            
+            # Chemotherapy
+            'cisplatin': [],
+            'carboplatin': [],
+            'paclitaxel': [],
+            'gemcitabine': [],
+        }
+        
+        return drug_target_map.get(drug_name_lower, [])
 
     def _update_target_with_content(self, target: Target, content: str):
         """Update target with additional information from content."""
@@ -1609,22 +1895,47 @@ class EntityExtractor:
         return hgnc_mappings.get(target_name.upper())
 
 
-def run_entity_extraction():
-    """Run entity extraction on all documents."""
-    db = get_db()
-    try:
-        extractor = EntityExtractor(db)
-        stats = extractor.extract_all_entities()
+    def _extract_phase_from_content(self, content: str) -> Optional[str]:
+        """Extract clinical trial phase from content."""
+        phase_patterns = [
+            r'Phase\s+([IVX]+)',
+            r'Phase\s+(\d+)',
+            r'([IVX]+)\s+Phase',
+            r'(\d+)\s+Phase'
+        ]
         
-        print("Entity Extraction Results:")
-        print("=" * 40)
-        for key, value in stats.items():
-            print(f"{key.replace('_', ' ').title()}: {value}")
+        for pattern in phase_patterns:
+            match = re.search(pattern, content, re.IGNORECASE)
+            if match:
+                phase = match.group(1)
+                # Normalize phase format
+                if phase.isdigit():
+                    return f"Phase {phase}"
+                else:
+                    return f"Phase {phase}"
         
-        return stats
-    finally:
-        db.close()
+        return None
+
+    def _extract_status_from_content(self, content: str) -> Optional[str]:
+        """Extract clinical trial status from content."""
+        status_keywords = {
+            'recruiting': ['recruiting', 'enrolling', 'active recruitment'],
+            'completed': ['completed', 'finished', 'closed'],
+            'terminated': ['terminated', 'stopped', 'discontinued'],
+            'suspended': ['suspended', 'paused', 'on hold'],
+            'withdrawn': ['withdrawn', 'cancelled'],
+            'unknown': ['unknown', 'not specified']
+        }
+        
+        content_lower = content.lower()
+        for status, keywords in status_keywords.items():
+            if any(keyword in content_lower for keyword in keywords):
+                return status.title()
+        
+        return None
 
 
-if __name__ == "__main__":
-    run_entity_extraction()
+
+
+
+

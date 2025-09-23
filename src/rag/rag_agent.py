@@ -10,6 +10,7 @@ from loguru import logger
 from src.models.entities import Document, Drug, Company, ClinicalTrial
 from src.rag.provider import BaseLLMProvider
 from src.rag.cache_manager import RAGCacheManager
+from src.rag.ground_truth_loader import ground_truth_loader
 
 
 @dataclass
@@ -169,10 +170,26 @@ def _search_clinical_trials(db: Session, query: str, limit: int = 5) -> List[Dic
             'status': trial.status or '',
             'phase': trial.phase or '',
             'sponsor': trial.sponsor.name if trial.sponsor else '',
-            'drug': trial.drug.generic_name if trial.drug else ''
+            'drug': trial.drug.generic_name if trial.drug else '',
+            'source': 'pipeline'
         })
     
     return trials
+
+
+def _search_ground_truth_drugs(query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    """Search for drugs in ground truth data."""
+    return ground_truth_loader.search_drugs(query, limit)
+
+
+def _search_ground_truth_companies(query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    """Search for companies in ground truth data."""
+    return ground_truth_loader.search_companies(query, limit)
+
+
+def _search_ground_truth_targets(query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    """Search for targets in ground truth data."""
+    return ground_truth_loader.search_targets(query, limit)
 
 
 class EnhancedBasicRAGAgent:
@@ -194,21 +211,33 @@ class EnhancedBasicRAGAgent:
                     "answer": cached_result["answer"],
                     "citations": cached_result.get("citations", []),
                     "drugs": cached_result.get("drugs", []),
-                    "trials": cached_result.get("trials", [])
+                    "trials": cached_result.get("trials", []),
+                    "companies": cached_result.get("companies", []),
+                    "targets": cached_result.get("targets", []),
+                    "data_sources": cached_result.get("data_sources", {})
                 }
             
             # Retrieve relevant documents
             documents = _simple_retrieve(db, question, k)
             logger.info(f"Retrieved {len(documents)} documents for query: {question[:50]}...")
             
-            # Search structured data
-            drugs = _search_drugs(db, question, 5)
-            trials = _search_clinical_trials(db, question, 5)
+            # Search structured data (pipeline)
+            pipeline_drugs = _search_drugs(db, question, 5)
+            pipeline_trials = _search_clinical_trials(db, question, 5)
             
-            logger.info(f"Found {len(drugs)} drugs and {len(trials)} trials for query: {question[:50]}...")
+            # Search ground truth data (prioritized)
+            gt_drugs = _search_ground_truth_drugs(question, 5)
+            gt_companies = _search_ground_truth_companies(question, 3)
+            gt_targets = _search_ground_truth_targets(question, 3)
             
-            # Create context
-            context = self._format_context(documents, drugs, trials)
+            # Combine and prioritize ground truth data
+            all_drugs = gt_drugs + pipeline_drugs
+            all_trials = pipeline_trials  # Ground truth trials are embedded in drug data
+            
+            logger.info(f"Found {len(gt_drugs)} GT drugs, {len(pipeline_drugs)} pipeline drugs, {len(gt_companies)} GT companies, {len(gt_targets)} GT targets for query: {question[:50]}...")
+            
+            # Create enhanced context with ground truth data
+            context = self._format_enhanced_context(documents, all_drugs, all_trials, gt_companies, gt_targets)
             
             # Generate answer using provider
             system_prompt = """
@@ -216,12 +245,20 @@ class EnhancedBasicRAGAgent:
             Provide accurate, evidence-based responses about cancer therapeutics, immunotherapy, and targeted therapies.
             Focus on actionable insights for biopharmaceutical partnerships.
             
+            You have access to both validated ground truth data and real-time pipeline data:
+            - Ground truth data is curated, validated, and includes business context (ticket numbers, priorities)
+            - Pipeline data is real-time but may be less comprehensive
+            
             Use the provided context to answer questions about:
             - Cancer drugs and their mechanisms of action
             - Clinical trials and their status
-            - Company drug pipelines
-            - Biopartnering opportunities
+            - Company drug pipelines and business priorities
+            - Biopartnering opportunities with ticket-based prioritization
             - FDA approval status and dates
+            - Target analysis and competitive landscape
+            
+            When mentioning companies, include their business priority level and ticket numbers when available.
+            Prioritize ground truth data for accuracy, but supplement with pipeline data for completeness.
             """
             
             user_prompt = f"""
@@ -254,8 +291,17 @@ class EnhancedBasicRAGAgent:
             return {
                 "answer": response,
                 "citations": citations,
-                "drugs": drugs,
-                "trials": trials
+                "drugs": all_drugs,
+                "trials": all_trials,
+                "companies": gt_companies,
+                "targets": gt_targets,
+                "data_sources": {
+                    "ground_truth_drugs": len(gt_drugs),
+                    "pipeline_drugs": len(pipeline_drugs),
+                    "ground_truth_companies": len(gt_companies),
+                    "ground_truth_targets": len(gt_targets),
+                    "documents": len(documents)
+                }
             }
             
         except Exception as e:
@@ -311,6 +357,98 @@ class EnhancedBasicRAGAgent:
         
         return "\n".join(context_parts)
     
+    def _format_enhanced_context(self, documents: List[RetrievedDoc], drugs: List[Dict[str, Any]], 
+                                trials: List[Dict[str, Any]], companies: List[Dict[str, Any]], 
+                                targets: List[Dict[str, Any]]) -> str:
+        """Format enhanced context with ground truth data and business context."""
+        context_parts = []
+        
+        # Add ground truth companies (business context)
+        if companies:
+            context_parts.append("=== BUSINESS CONTEXT (GROUND TRUTH) ===")
+            for company in companies:
+                context_parts.append(
+                    f"Company: {company['partner']}\n"
+                    f"Business Priority: {company['business_priority']}\n"
+                    f"Total Tickets: {company['total_tickets']}\n"
+                    f"Drug Portfolio: {company['drug_count']} drugs\n"
+                    f"FDA Approved: {company['fda_approved_count']} drugs\n"
+                    f"Unique Targets: {company['unique_targets']}\n"
+                    f"Data Quality: {company['data_quality']}\n"
+                )
+        
+        # Add ground truth targets
+        if targets:
+            context_parts.append("=== TARGET ANALYSIS (GROUND TRUTH) ===")
+            for target in targets:
+                context_parts.append(
+                    f"Target: {target['target']}\n"
+                    f"Drugs Targeting: {target['drug_count']}\n"
+                    f"Companies: {target['company_count']}\n"
+                    f"FDA Approved: {target['fda_approved_count']}\n"
+                    f"Business Priority: {target['business_priority']}\n"
+                    f"Data Quality: {target['data_quality']}\n"
+                )
+        
+        # Add ground truth drugs (prioritized)
+        gt_drugs = [d for d in drugs if d.get('source') == 'ground_truth']
+        if gt_drugs:
+            context_parts.append("=== VALIDATED DRUGS (GROUND TRUTH) ===")
+            for drug in gt_drugs:
+                context_parts.append(
+                    f"Drug: {drug['generic_name']} ({drug['brand_name']})\n"
+                    f"Company: {drug['partner']}\n"
+                    f"Business Priority: {drug['business_priority']}\n"
+                    f"Tickets: {drug['tickets']}\n"
+                    f"FDA Approval: {drug['fda_approval']}\n"
+                    f"Drug Class: {drug['drug_class']}\n"
+                    f"Target: {drug['target']}\n"
+                    f"Mechanism: {drug['mechanism']}\n"
+                    f"Indication: {drug['indication_approved']}\n"
+                    f"Clinical Trials: {drug['current_clinical_trials']}\n"
+                    f"Data Quality: {drug['data_quality']}\n"
+                )
+        
+        # Add pipeline drugs (supplementary)
+        pipeline_drugs = [d for d in drugs if d.get('source') != 'ground_truth']
+        if pipeline_drugs:
+            context_parts.append("=== PIPELINE DRUGS (REAL-TIME) ===")
+            for drug in pipeline_drugs:
+                context_parts.append(
+                    f"Drug: {drug['generic_name']} ({drug['brand_name']})\n"
+                    f"Company: {drug['company']}\n"
+                    f"Class: {drug['drug_class']}\n"
+                    f"Target: {drug['target']}\n"
+                    f"Mechanism: {drug['mechanism']}\n"
+                    f"FDA Approved: {drug['fda_approved']}\n"
+                    f"Source: Pipeline\n"
+                )
+        
+        # Add document context
+        if documents:
+            context_parts.append("=== DOCUMENTS ===")
+            for i, doc in enumerate(documents, 1):
+                context_parts.append(
+                    f"[Document {i}] {doc.title} | {doc.source_type} | {doc.url}\n"
+                    f"{doc.content}\n"
+                )
+        
+        # Add trial context
+        if trials:
+            context_parts.append("=== CLINICAL TRIALS ===")
+            for trial in trials:
+                context_parts.append(
+                    f"Trial: {trial['title']}\n"
+                    f"NCT ID: {trial['nct_id']}\n"
+                    f"Status: {trial['status']}\n"
+                    f"Phase: {trial['phase']}\n"
+                    f"Sponsor: {trial['sponsor']}\n"
+                    f"Drug: {trial['drug']}\n"
+                    f"Source: {trial.get('source', 'pipeline')}\n"
+                )
+        
+        return "\n".join(context_parts)
+    
     def _create_citations(self, documents: List[RetrievedDoc]) -> List[Dict[str, str]]:
         """Create citations from retrieved documents."""
         citations = []
@@ -321,6 +459,78 @@ class EnhancedBasicRAGAgent:
                 "url": doc.url
             })
         return citations
+    
+    def validate_response_accuracy(self, db: Session, question: str, response_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate RAG response accuracy using ground truth data."""
+        validation_results = {
+            'validation_status': 'completed',
+            'ground_truth_matches': 0,
+            'pipeline_matches': 0,
+            'discrepancies': [],
+            'confidence_score': 0.0,
+            'recommendations': []
+        }
+        
+        try:
+            # Validate drugs
+            pipeline_drugs = [d for d in response_data.get('drugs', []) if d.get('source') != 'ground_truth']
+            gt_drugs = [d for d in response_data.get('drugs', []) if d.get('source') == 'ground_truth']
+            
+            validation_results['ground_truth_matches'] = len(gt_drugs)
+            validation_results['pipeline_matches'] = len(pipeline_drugs)
+            
+            # Check for discrepancies between pipeline and ground truth
+            for pipeline_drug in pipeline_drugs:
+                drug_name = pipeline_drug.get('generic_name', '').lower()
+                
+                # Find matching ground truth entry
+                gt_match = ground_truth_loader.search_drugs(drug_name, 1)
+                
+                if gt_match:
+                    gt_drug = gt_match[0]
+                    discrepancies = []
+                    
+                    # Check for discrepancies in key fields
+                    if pipeline_drug.get('company', '').lower() != gt_drug.get('partner', '').lower():
+                        discrepancies.append(f"Company mismatch: Pipeline={pipeline_drug.get('company')}, GT={gt_drug.get('partner')}")
+                    
+                    if pipeline_drug.get('drug_class', '') != gt_drug.get('drug_class', ''):
+                        discrepancies.append(f"Drug class mismatch: Pipeline={pipeline_drug.get('drug_class')}, GT={gt_drug.get('drug_class')}")
+                    
+                    if pipeline_drug.get('target', '') != gt_drug.get('target', ''):
+                        discrepancies.append(f"Target mismatch: Pipeline={pipeline_drug.get('target')}, GT={gt_drug.get('target')}")
+                    
+                    if discrepancies:
+                        validation_results['discrepancies'].append({
+                            'drug': drug_name,
+                            'discrepancies': discrepancies,
+                            'pipeline_data': pipeline_drug,
+                            'ground_truth_data': gt_drug
+                        })
+            
+            # Calculate confidence score
+            total_drugs = len(pipeline_drugs) + len(gt_drugs)
+            if total_drugs > 0:
+                gt_ratio = len(gt_drugs) / total_drugs
+                discrepancy_penalty = len(validation_results['discrepancies']) * 0.1
+                validation_results['confidence_score'] = max(0.0, gt_ratio - discrepancy_penalty)
+            
+            # Generate recommendations
+            if validation_results['confidence_score'] < 0.7:
+                validation_results['recommendations'].append("Consider prioritizing ground truth data for higher accuracy")
+            
+            if validation_results['discrepancies']:
+                validation_results['recommendations'].append("Review discrepancies between pipeline and ground truth data")
+            
+            if len(gt_drugs) == 0 and len(pipeline_drugs) > 0:
+                validation_results['recommendations'].append("No ground truth matches found - consider expanding ground truth coverage")
+            
+        except Exception as e:
+            logger.error(f"Error in response validation: {e}")
+            validation_results['validation_status'] = 'error'
+            validation_results['error'] = str(e)
+        
+        return validation_results
 
 
 def create_enhanced_basic_rag_agent(provider: BaseLLMProvider, cache_ttl_hours: int = 24) -> EnhancedBasicRAGAgent:

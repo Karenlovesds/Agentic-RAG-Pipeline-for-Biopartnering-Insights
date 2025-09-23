@@ -36,11 +36,15 @@ class ClinicalTrialsCollector(BaseCollector):
                 data = await self._collect_company_trials(params)
                 collected_data.extend(data)
             else:
-                # Collect data for each target company (CSV-backed with fallback)
-                for company in get_target_companies()[:5]:  # Limit to first 5 companies for testing
-                    company_params = {**params, "query.spons": company}
-                    data = await self._collect_company_trials(company_params)
-                    collected_data.extend(data)
+                # Collect data for each target company
+                companies = get_target_companies()
+                if not companies:
+                    logger.warning("No companies found in CSV, skipping company-based collection")
+                else:
+                    for company in companies[:5]:  # Limit to first 5 companies for testing
+                        company_params = {**params, "query.spons": company}
+                        data = await self._collect_company_trials(company_params)
+                        collected_data.extend(data)
                 
         except Exception as e:
             logger.error(f"Error collecting clinical trials data: {e}")
@@ -86,7 +90,12 @@ class ClinicalTrialsCollector(BaseCollector):
         seen_trials = set()  # For deduplication using NCT IDs
         
         # Get company list
-        companies = get_target_companies()[:max_companies]
+        companies = get_target_companies()
+        if not companies:
+            logger.warning("No companies found in CSV, skipping keyword-based collection")
+            return collected_data
+        
+        companies = companies[:max_companies]
         
         # Define keyword combinations for each company
         keyword_combinations = [
@@ -175,7 +184,8 @@ class ClinicalTrialsCollector(BaseCollector):
                     
                     # Extract key information
                     nct_id = identification_module.get("nctId", "")
-                    title = identification_module.get("briefTitle", "")
+                    # Use official title if available, fallback to brief title
+                    title = identification_module.get("officialTitle", "") or identification_module.get("briefTitle", "")
                     
                     # Create content from study data
                     content = self._format_study_content(study)
@@ -226,6 +236,125 @@ class ClinicalTrialsCollector(BaseCollector):
         except Exception as e:
             logger.error(f"Error formatting study content: {e}")
             return str(study)
+    
+    async def populate_trials_for_existing_drugs(self, max_drugs: int = 50) -> Dict[str, Any]:
+        """Populate clinical trials for drugs already in the database."""
+        from ..models.entities import Drug, ClinicalTrial, Indication, DrugIndication
+        from ..models.database import get_db
+        
+        logger.info("🧬 Starting Clinical Trials Population for existing drugs")
+        logger.info("=" * 50)
+        
+        db = get_db()
+        results = {
+            "processed_drugs": 0,
+            "trials_added": 0,
+            "indications_extracted": 0,
+            "errors": 0
+        }
+        
+        try:
+            # Get all drugs from our database
+            drugs = db.query(Drug).limit(max_drugs).all()
+            logger.info(f"Found {len(drugs)} drugs in database")
+            
+            if not drugs:
+                logger.warning("No drugs found in database. Please run data collection first.")
+                return results
+            
+            # Process each drug
+            for i, drug in enumerate(drugs, 1):
+                logger.info(f"Processing drug {i}/{len(drugs)}: {drug.generic_name}")
+                
+                try:
+                    # Search for clinical trials for this drug
+                    search_terms = [drug.generic_name]
+                    if drug.brand_name:
+                        search_terms.append(drug.brand_name)
+                    
+                    # Use the existing search method
+                    trials_data = await self._search_clinical_trials(search_terms)
+                    
+                    if trials_data:
+                        trials_added = 0
+                        indications_extracted = 0
+                        
+                        for trial_data in trials_data:
+                            # Check if trial already exists
+                            existing_trial = db.query(ClinicalTrial).filter(
+                                ClinicalTrial.nct_id == trial_data.get('nct_id')
+                            ).first()
+                            
+                            if not existing_trial:
+                                # Create new trial
+                                trial = ClinicalTrial(
+                                    nct_id=trial_data.get('nct_id'),
+                                    title=trial_data.get('title', ''),
+                                    status=trial_data.get('status', ''),
+                                    phase=trial_data.get('phase', ''),
+                                    study_type=trial_data.get('study_type', ''),
+                                    start_date=trial_data.get('start_date'),
+                                    completion_date=trial_data.get('completion_date'),
+                                    sponsor=trial_data.get('sponsor', ''),
+                                    conditions=trial_data.get('conditions', []),
+                                    interventions=trial_data.get('interventions', []),
+                                    study_population=trial_data.get('study_population', []),
+                                    primary_endpoints=trial_data.get('primary_endpoints', [])
+                                )
+                                db.add(trial)
+                                db.flush()  # Get the ID
+                                trials_added += 1
+                                
+                                # Link trial to drug
+                                if not any(ct.drug_id == drug.id for ct in drug.clinical_trials):
+                                    drug.clinical_trials.append(trial)
+                                
+                                # Extract indications from trial title
+                                title = trial_data.get('title', '').lower()
+                                if any(keyword in title for keyword in ['cancer', 'tumor', 'oncology', 'carcinoma', 'sarcoma', 'lymphoma', 'leukemia']):
+                                    # Create indication
+                                    indication_text = trial_data.get('title', '')
+                                    if indication_text:
+                                        indication = Indication(
+                                            indication=indication_text,
+                                            approval_status=False,  # Clinical trial, not approved
+                                            source='Clinical Trial'
+                                        )
+                                        db.add(indication)
+                                        db.flush()
+                                        
+                                        # Link indication to drug
+                                        drug_indication = DrugIndication(
+                                            drug_id=drug.id,
+                                            indication_id=indication.id
+                                        )
+                                        db.add(drug_indication)
+                                        indications_extracted += 1
+                        
+                        db.commit()
+                        results["trials_added"] += trials_added
+                        results["indications_extracted"] += indications_extracted
+                        logger.info(f"Added {trials_added} trials and {indications_extracted} indications for {drug.generic_name}")
+                    else:
+                        logger.warning(f"No clinical trials found for {drug.generic_name}")
+                    
+                    results["processed_drugs"] += 1
+                    
+                except Exception as e:
+                    logger.error(f"Error processing {drug.generic_name}: {e}")
+                    results["errors"] += 1
+                    continue
+            
+            logger.info(f"Clinical trials population completed! Processed: {results['processed_drugs']}, Trials: {results['trials_added']}, Indications: {results['indications_extracted']}, Errors: {results['errors']}")
+            
+        except Exception as e:
+            logger.error(f"Error in clinical trials population: {e}")
+            db.rollback()
+            results["errors"] += 1
+        finally:
+            db.close()
+        
+        return results
     
     def parse_data(self, raw_data: Any) -> List[CollectedData]:
         """Parse raw clinical trials data."""

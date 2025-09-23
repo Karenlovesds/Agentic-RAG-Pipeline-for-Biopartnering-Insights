@@ -39,8 +39,8 @@ class DrugsCollector(BaseCollector):
                     seen.add(drug_lower)
                     drug_names.append(drug)
         
-        # Limit to first 20 drugs for comprehensive collection
-        drug_names = drug_names[:20]
+        # # Limit to first 20 drugs for comprehensive collection
+        # drug_names = drug_names[:20]
         
         logger.info(f"Starting comprehensive drug data collection for {len(drug_names)} drugs (database + known drugs)")
         
@@ -106,10 +106,6 @@ class DrugsCollector(BaseCollector):
         # Convert to lowercase for consistency
         return [drug.lower() for drug in known_drugs]
     
-    def _get_sample_known_drugs(self, limit: int = 10) -> List[str]:
-        """Get a sample of known drugs for testing purposes."""
-        known_drugs = self._get_comprehensive_drug_list()
-        return known_drugs[:limit]
     
     async def _collect_drugs_com_profile(self, drug_name: str) -> List[CollectedData]:
         """Collect basic drug profile from Drugs.com."""

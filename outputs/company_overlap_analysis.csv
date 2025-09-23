@@ -1,0 +1,12 @@
+ground_truth_company,pipeline_company,match_type,drug_count,trial_count
+Amgen,Amgen,exact,4,0
+Roche,Roche/Genentech,partial,14,1
+Genentech,Roche/Genentech,partial,14,1
+AbbVie,AbbVie Inc.,partial,1,0
+AstraZeneca,AstraZeneca Pharmaceuticals LP,partial,4,0
+Astellas,"Astellas Pharma US, Inc.",partial,3,0
+Bayer,Bayer HealthCare Pharmaceuticals Inc.,partial,1,0
+Daiichi,Daiichi Sankyo,partial,1,0
+Merck,Merck & Co.,partial,2,0
+Novartis,Novartis Pharmaceuticals Corporation,partial,0,0
+Regeneron,"Regeneron Pharmaceuticals, Inc.",partial,1,0

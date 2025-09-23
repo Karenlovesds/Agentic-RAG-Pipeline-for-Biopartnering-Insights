@@ -6,6 +6,7 @@ from typing import List, Optional
 import csv
 from pydantic import Field
 from pydantic_settings import BaseSettings
+from loguru import logger
 
 
 class Settings(BaseSettings):
@@ -34,15 +35,6 @@ class Settings(BaseSettings):
     drugs_com_base_url: str = "https://www.drugs.com"
     fda_base_url: str = "https://www.fda.gov"
     
-    # Top 30 oncology-focused pharma/biotech companies
-    target_companies: List[str] = [
-        "Merck & Co.", "Bristol Myers Squibb", "Roche/Genentech", "AstraZeneca", "Pfizer",
-        "Novartis", "Gilead Sciences", "Amgen", "Regeneron Pharmaceuticals", "BioNTech",
-        "BeiGene", "Seagen", "Incyte", "Vertex Pharmaceuticals", "Moderna",
-        "Johnson & Johnson", "AbbVie", "Eli Lilly", "Sanofi", "Bayer",
-        "Takeda Pharmaceutical", "Daiichi Sankyo", "Astellas Pharma", "Boehringer Ingelheim", "Alnylam Pharmaceuticals",
-        "Illumina", "Merck KGaA", "GlaxoSmithKline (GSK)", "CSL", "Biogen"
-    ]
     
     # Evaluation settings
     evaluation_sample_size: int = Field(100, env="EVALUATION_SAMPLE_SIZE")
@@ -71,9 +63,10 @@ Path("outputs").mkdir(parents=True, exist_ok=True)
 
 
 def get_target_companies(csv_path: str = "data/companies.csv") -> List[str]:
-    """Return target companies from CSV if available, else fall back to defaults.
+    """Return target companies from CSV file.
 
     The CSV is expected to have a header with a 'Company' column.
+    Returns empty list if CSV is not found or invalid.
     """
     path = Path(csv_path)
     if path.exists():
@@ -87,10 +80,11 @@ def get_target_companies(csv_path: str = "data/companies.csv") -> List[str]:
                     if name and name not in seen:
                         companies.append(name)
                         seen.add(name)
-            if companies:
-                return companies
-        except Exception:
-            # On any CSV error, fall back to defaults
-            pass
-    return settings.target_companies
+            return companies
+        except Exception as e:
+            logger.error(f"Error reading companies CSV: {e}")
+    else:
+        logger.warning(f"Companies CSV not found at {csv_path}")
+    
+    return []
 

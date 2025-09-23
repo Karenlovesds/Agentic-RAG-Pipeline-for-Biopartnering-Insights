@@ -66,8 +66,8 @@ class FDACollector(BaseCollector):
             # FDA Drug Approvals API endpoint
             url = "https://api.fda.gov/drug/label.json"
             params = {
-                "limit": 20,
-                "search": "openfda.brand_name:* AND (indications_and_usage:\"cancer\" OR indications_and_usage:\"oncology\" OR indications_and_usage:\"tumor\" OR indications_and_usage:\"carcinoma\" OR indications_and_usage:\"sarcoma\" OR indications_and_usage:\"lymphoma\" OR indications_and_usage:\"leukemia\" OR indications_and_usage:\"neoplasm\" OR indications_and_usage:\"malignancy\" OR indications_and_usage:\"metastatic\")",
+                "limit": 50,
+                "search": "openfda.brand_name:* AND (openfda.brand_name:\"KEYTRUDA\" OR openfda.brand_name:\"OPDIVO\" OR openfda.brand_name:\"HERCEPTIN\" OR openfda.brand_name:\"AVASTIN\" OR openfda.brand_name:\"RITUXAN\" OR openfda.brand_name:\"TECENTRIQ\" OR openfda.brand_name:\"IMFINZI\" OR openfda.brand_name:\"TAGRISSO\" OR openfda.brand_name:\"LYNPARZA\" OR openfda.brand_name:\"YERVOY\" OR openfda.brand_name:\"BAVENCIO\" OR openfda.brand_name:\"LIBTAYO\" OR openfda.brand_name:\"ZELBORAF\" OR openfda.brand_name:\"COTELLIC\" OR openfda.brand_name:\"PERJETA\" OR openfda.brand_name:\"KADCYLA\" OR openfda.brand_name:\"LUNSUMIO\" OR openfda.brand_name:\"COLUMVI\" OR openfda.brand_name:\"ALECENSA\" OR openfda.brand_name:\"ROZLYTREK\" OR openfda.brand_name:\"PHESGO\" OR openfda.brand_name:\"ITOVEBI\" OR openfda.brand_name:\"GILOTRIF\" OR openfda.brand_name:\"TARCEVA\" OR openfda.brand_name:\"ERBITUX\" OR openfda.brand_name:\"VECTIBIX\" OR openfda.brand_name:\"TYKERB\" OR openfda.brand_name:\"AFINITOR\" OR openfda.brand_name:\"TORISEL\" OR openfda.brand_name:\"KYPROLIS\" OR openfda.brand_name:\"PADCEV\" OR openfda.brand_name:\"XOSPATA\" OR openfda.brand_name:\"ZOLBETUX\" OR openfda.brand_name:\"NUBEQA\" OR openfda.brand_name:\"LUMAKRAS\" OR openfda.brand_name:\"BLINCYTO\" OR openfda.brand_name:\"IMLYGIC\" OR openfda.brand_name:\"BESPONSA\" OR openfda.brand_name:\"BLENREP\" OR openfda.brand_name:\"POLIVY\" OR openfda.brand_name:\"ADCETRIS\" OR openfda.brand_name:\"ZEVALIN\" OR openfda.brand_name:\"BEXXAR\" OR openfda.brand_name:\"FOLOTYN\" OR openfda.brand_name:\"ADCETRIS\" OR openfda.brand_name:\"ZEVALIN\" OR openfda.brand_name:\"BEXXAR\" OR openfda.brand_name:\"FOLOTYN\" OR openfda.brand_name:\"ADCETRIS\" OR openfda.brand_name:\"ZEVALIN\" OR openfda.brand_name:\"BEXXAR\" OR openfda.brand_name:\"FOLOTYN\")",
                 "sort": "effective_time:desc"
             }
             
@@ -124,8 +124,8 @@ class FDACollector(BaseCollector):
             # Enhanced FDA Drug Approvals API search
             url = "https://api.fda.gov/drug/label.json"
             params = {
-                "limit": 30,
-                "search": "openfda.brand_name:* AND (indications_and_usage:\"cancer\" OR indications_and_usage:\"oncology\" OR indications_and_usage:\"tumor\" OR indications_and_usage:\"carcinoma\" OR indications_and_usage:\"sarcoma\" OR indications_and_usage:\"lymphoma\" OR indications_and_usage:\"leukemia\" OR indications_and_usage:\"neoplasm\" OR indications_and_usage:\"malignancy\" OR indications_and_usage:\"metastatic\")",
+                "limit": 50,
+                "search": "openfda.brand_name:* AND (openfda.brand_name:\"KEYTRUDA\" OR openfda.brand_name:\"OPDIVO\" OR openfda.brand_name:\"HERCEPTIN\" OR openfda.brand_name:\"AVASTIN\" OR openfda.brand_name:\"RITUXAN\" OR openfda.brand_name:\"TECENTRIQ\" OR openfda.brand_name:\"IMFINZI\" OR openfda.brand_name:\"TAGRISSO\" OR openfda.brand_name:\"LYNPARZA\" OR openfda.brand_name:\"YERVOY\" OR openfda.brand_name:\"BAVENCIO\" OR openfda.brand_name:\"LIBTAYO\" OR openfda.brand_name:\"ZELBORAF\" OR openfda.brand_name:\"COTELLIC\" OR openfda.brand_name:\"PERJETA\" OR openfda.brand_name:\"KADCYLA\" OR openfda.brand_name:\"LUNSUMIO\" OR openfda.brand_name:\"COLUMVI\" OR openfda.brand_name:\"ALECENSA\" OR openfda.brand_name:\"ROZLYTREK\" OR openfda.brand_name:\"PHESGO\" OR openfda.brand_name:\"ITOVEBI\" OR openfda.brand_name:\"GILOTRIF\" OR openfda.brand_name:\"TARCEVA\" OR openfda.brand_name:\"ERBITUX\" OR openfda.brand_name:\"VECTIBIX\" OR openfda.brand_name:\"TYKERB\" OR openfda.brand_name:\"AFINITOR\" OR openfda.brand_name:\"TORISEL\" OR openfda.brand_name:\"KYPROLIS\" OR openfda.brand_name:\"PADCEV\" OR openfda.brand_name:\"XOSPATA\" OR openfda.brand_name:\"ZOLBETUX\" OR openfda.brand_name:\"NUBEQA\" OR openfda.brand_name:\"LUMAKRAS\" OR openfda.brand_name:\"BLINCYTO\" OR openfda.brand_name:\"IMLYGIC\" OR openfda.brand_name:\"BESPONSA\" OR openfda.brand_name:\"BLENREP\" OR openfda.brand_name:\"POLIVY\" OR openfda.brand_name:\"ADCETRIS\" OR openfda.brand_name:\"ZEVALIN\" OR openfda.brand_name:\"BEXXAR\" OR openfda.brand_name:\"FOLOTYN\")",
                 "sort": "effective_time:desc"
             }
             
@@ -321,32 +321,6 @@ class FDACollector(BaseCollector):
             ])
         
         return "\n".join(content_parts)
-    
-    def _create_fda_trials_placeholder(self) -> str:
-        """Create placeholder FDA clinical trials data."""
-        return """FDA Clinical Trials Information
-
-This section contains information about FDA-regulated clinical trials,
-including trial design requirements, regulatory oversight, and compliance information.
-
-Key Areas Covered:
-- Clinical trial design and protocol requirements
-- FDA guidance on clinical trial conduct
-- Regulatory oversight and inspection processes
-- Good Clinical Practice (GCP) requirements
-- Data integrity and quality standards
-- Patient safety monitoring requirements
-- Investigational New Drug (IND) application process
-- New Drug Application (NDA) clinical data requirements
-
-Note: This is a placeholder for FDA clinical trials data.
-In a full implementation, this would contain:
-- Specific trial design requirements
-- Regulatory guidance documents
-- Compliance and inspection information
-- Clinical trial database information
-- Safety monitoring requirements
-- Data submission requirements"""
     
     def _extract_regulatory_action_data(self, regulatory_result: Dict[str, Any]) -> str:
         """Extract regulatory action data from FDA enforcement API."""
@@ -692,6 +666,233 @@ In a full implementation, this would contain:
             content_parts.append(f"Drug Mechanism of Action: {drug_mechanism}")
         
         return "\n".join(content_parts) if content_parts else ""
+    
+    async def extract_drug_indications(self, drug_names: List[str]) -> List[Dict[str, Any]]:
+        """Extract approved indications for a list of drug names."""
+        drug_indications = []
+        
+        for drug_name in drug_names:
+            try:
+                logger.info(f"Extracting FDA indications for: {drug_name}")
+                indications = await self._get_drug_indications(drug_name)
+                if indications:
+                    drug_indications.extend(indications)
+                    logger.info(f"✅ Found {len(indications)} indication entries for {drug_name}")
+                else:
+                    logger.warning(f"⚠️ No indications found for {drug_name}")
+            except Exception as e:
+                logger.error(f"Error extracting indications for {drug_name}: {e}")
+                continue
+        
+        return drug_indications
+    
+    async def _get_drug_indications(self, drug_name: str) -> List[Dict[str, Any]]:
+        """Get FDA indications for a specific drug."""
+        indications_data = []
+        
+        try:
+            # Search for drug by brand name first
+            brand_results = await self._search_fda_drug(drug_name, search_type="brand")
+            if brand_results:
+                indications_data.extend(brand_results)
+            
+            # Search for drug by generic name
+            generic_results = await self._search_fda_drug(drug_name, search_type="generic")
+            if generic_results:
+                indications_data.extend(generic_results)
+            
+            # Deduplicate results
+            indications_data = self._deduplicate_indications(indications_data)
+            
+        except Exception as e:
+            logger.error(f"Error getting indications for {drug_name}: {e}")
+        
+        return indications_data
+    
+    async def _search_fda_drug(self, drug_name: str, search_type: str = "brand") -> List[Dict[str, Any]]:
+        """Search FDA database for drug information."""
+        try:
+            if search_type == "brand":
+                search_field = "openfda.brand_name"
+            else:
+                search_field = "openfda.generic_name"
+            
+            url = f"{self.fda_base_url}/drug/label.json"
+            params = {
+                "limit": 10,
+                "search": f"{search_field}:\"{drug_name}\"",
+                "sort": "effective_time:desc"
+            }
+            
+            response = self._make_request(url, params)
+            
+            if response and response.status_code == 200:
+                data = response.json()
+                results = data.get("results", [])
+                
+                indication_entries = []
+                for result in results:
+                    indication_entry = self._extract_indication_entry(result, drug_name)
+                    if indication_entry:
+                        indication_entries.append(indication_entry)
+                
+                return indication_entries
+            else:
+                logger.warning(f"FDA API request failed for {drug_name}: {response.status_code if response else 'No response'}")
+                return []
+                
+        except Exception as e:
+            logger.error(f"Error searching FDA database for {drug_name}: {e}")
+            return []
+    
+    def _extract_indication_entry(self, fda_result: Dict[str, Any], drug_name: str) -> Optional[Dict[str, Any]]:
+        """Extract indication information from FDA result."""
+        try:
+            openfda = fda_result.get("openfda", {})
+            
+            # Extract basic drug info
+            brand_names = openfda.get("brand_name", [])
+            generic_names = openfda.get("generic_name", [])
+            manufacturer = openfda.get("manufacturer_name", [])
+            
+            # Extract indications
+            indications = fda_result.get("indications_and_usage", [])
+            if not indications:
+                return None
+            
+            # Extract approval date
+            effective_time = fda_result.get("effective_time", "")
+            approval_date = self._parse_approval_date(effective_time)
+            
+            # Extract product type and route
+            product_type = openfda.get("product_type", [])
+            route = openfda.get("route", [])
+            
+            # Extract application number
+            application_number = openfda.get("application_number", [])
+            
+            indication_entry = {
+                "drug_name": drug_name,
+                "brand_names": brand_names,
+                "generic_names": generic_names,
+                "manufacturer": manufacturer[0] if manufacturer else None,
+                "indications": indications,
+                "approval_date": approval_date,
+                "effective_time": effective_time,
+                "product_type": product_type[0] if product_type else None,
+                "route": route[0] if route else None,
+                "application_number": application_number[0] if application_number else None,
+                "fda_id": fda_result.get("id", ""),
+                "source_url": f"{self.fda_base_url}/drug/label.json?id={fda_result.get('id', '')}"
+            }
+            
+            return indication_entry
+            
+        except Exception as e:
+            logger.error(f"Error extracting indication entry: {e}")
+            return None
+    
+    def _parse_approval_date(self, effective_time: str) -> Optional[str]:
+        """Parse FDA effective time to get approval date."""
+        try:
+            if not effective_time:
+                return None
+            
+            # FDA effective time format: "20191220" -> "2019-12-20"
+            if len(effective_time) == 8 and effective_time.isdigit():
+                year = effective_time[:4]
+                month = effective_time[4:6]
+                day = effective_time[6:8]
+                return f"{year}-{month}-{day}"
+            
+            return effective_time
+            
+        except Exception as e:
+            logger.error(f"Error parsing approval date {effective_time}: {e}")
+            return None
+    
+    def _deduplicate_indications(self, indications_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Remove duplicate indication entries based on FDA ID."""
+        seen_ids = set()
+        unique_indications = []
+        
+        for indication in indications_data:
+            fda_id = indication.get("fda_id", "")
+            if fda_id and fda_id not in seen_ids:
+                seen_ids.add(fda_id)
+                unique_indications.append(indication)
+        
+        return unique_indications
+    
+    async def extract_indications_for_existing_drugs(self) -> Dict[str, Any]:
+        """Extract FDA indications for all drugs already in the database."""
+        from ..models.entities import Drug, Indication
+        from ..models.database import get_db
+        
+        logger.info("Starting FDA indications extraction for existing drugs...")
+        
+        db = get_db()
+        results = {
+            "processed_drugs": 0,
+            "indications_added": 0,
+            "errors": 0
+        }
+        
+        try:
+            # Get all drugs from database
+            drugs = db.query(Drug).all()
+            logger.info(f"Found {len(drugs)} drugs to process")
+            
+            if not drugs:
+                logger.warning("No drugs found in database. Run data collection first.")
+                return results
+            
+            # Process each drug
+            for i, drug in enumerate(drugs, 1):
+                logger.info(f"Processing drug {i}/{len(drugs)}: {drug.generic_name}")
+                
+                try:
+                    # Extract FDA data for this drug
+                    fda_data = await self.collect_drug_data(drug.generic_name)
+                    
+                    if fda_data and 'indications' in fda_data:
+                        # Clear existing indications
+                        db.query(Indication).filter(Indication.drug_id == drug.id).delete()
+                        
+                        # Add new indications
+                        for indication_data in fda_data['indications']:
+                            indication = Indication(
+                                drug_id=drug.id,
+                                indication=indication_data.get('indication', ''),
+                                approval_status=indication_data.get('approved', False),
+                                approval_date=indication_data.get('approval_date'),
+                                source='FDA'
+                            )
+                            db.add(indication)
+                            results["indications_added"] += 1
+                        
+                        db.commit()
+                        logger.info(f"Added {len(fda_data['indications'])} indications for {drug.generic_name}")
+                    else:
+                        logger.warning(f"No FDA data found for {drug.generic_name}")
+                        
+                    results["processed_drugs"] += 1
+                        
+                except Exception as e:
+                    logger.error(f"Error processing {drug.generic_name}: {e}")
+                    results["errors"] += 1
+                    continue
+            
+            logger.info(f"FDA indications extraction completed! Processed: {results['processed_drugs']}, Indications: {results['indications_added']}, Errors: {results['errors']}")
+            
+        except Exception as e:
+            logger.error(f"Error in FDA indications extraction: {e}")
+            db.rollback()
+            results["errors"] += 1
+        finally:
+            db.close()
+        
+        return results
     
     def parse_data(self, raw_data: Any) -> List[CollectedData]:
         """Parse raw data into CollectedData objects."""

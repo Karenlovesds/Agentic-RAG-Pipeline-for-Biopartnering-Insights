@@ -1,0 +1,39 @@
+============================================================
+GROUND TRUTH VALIDATION REPORT
+============================================================
+Generated: 2025-09-22T23:03:29.753250
+
+SUMMARY
+--------------------
+Overall Health: Good
+Total Validations: 4
+
+KEY METRICS
+--------------------
+drug_names_f1: 0.187
+company_coverage_f1: 0.035
+mechanisms_accuracy: 0.136
+clinical_trials_coverage: 3.275
+
+DETAILED RESULTS
+--------------------
+
+DRUG_NAMES:
+  Precision: 0.448
+  Recall: 0.118
+  F1 Score: 0.187
+  Missing from pipeline: 224 items
+
+COMPANY_COVERAGE:
+  Precision: 0.028
+  Recall: 0.048
+  F1 Score: 0.035
+  Missing from pipeline: 20 items
+
+MECHANISMS:
+  Accuracy: 0.136
+
+CLINICAL_TRIALS:
+  Coverage: 3.275
+
+============================================================

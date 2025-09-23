@@ -1,9 +1,9 @@
 Company,OfficialWebsite,PipelineURL,NewsURL
-Johnson & Johnson,https://www.jnj.com,https://investor.jnj.com/pipeline/development-pipeline/default.aspx,https://www.jnj.com/media-center/press-releases
+JNJ,https://www.jnj.com,https://investor.jnj.com/pipeline/development-pipeline/default.aspx,https://www.jnj.com/media-center/press-releases
 Pfizer,https://www.pfizer.com,https://www.pfizer.com/science/drug-product-pipeline,https://www.pfizer.com/newsroom/press-releases
 Roche/Genentech,https://www.roche.com,https://www.roche.com/solutions/pipeline,https://www.roche.com/media/releases
 Novartis,https://www.novartis.com,https://www.novartis.com/research-development/novartis-pipeline,https://www.novartis.com/news/newsroom
-Merck & Co.,https://www.merck.com,https://www.merck.com/research/development-pipeline/,https://www.merck.com/media/news/
+Merck,https://www.merck.com,https://www.merck.com/research/development-pipeline/,https://www.merck.com/media/news/
 AbbVie,https://www.abbvie.com,https://www.abbvie.com/science/pipeline.html,https://news.abbvie.com/
 Sanofi,https://www.sanofi.com,https://www.sanofi.com/en/our-science/our-pipeline,https://www.sanofi.com/en/media-room/press-releases
 Bristol Myers Squibb,https://www.bms.com,https://www.bms.com/researchers-and-partners/our-pipeline.html,https://www.bms.com/media/press-releases.html
@@ -24,8 +24,14 @@ Seagen,https://www.seagen.com,https://www.seagen.com/pipeline,https://www.pfizer
 BeiGene,https://www.beigene.com,https://www.beigene.com/science/pipeline/,https://ir.beigene.com/press-releases/
 Incyte,https://www.incyte.com,https://www.incyte.com/our-science/pipeline,https://investor.incyte.com/press-releases/
 Alnylam Pharmaceuticals,https://www.alnylam.com,https://www.alnylam.com/our-science/pipeline/,https://investors.alnylam.com/press-releases
-Daiichi Sankyo,https://www.daiichisankyo.com,https://www.daiichisankyo.com/rd/pipeline/,https://www.daiichisankyo.com/media/press_release/
+Daiichi,https://www.daiichisankyo.com,https://www.daiichisankyo.com/rd/pipeline/,https://www.daiichisankyo.com/media/press_release/
 Merck KGaA,https://www.merckgroup.com,https://www.merckgroup.com/en/research/pipeline.html,https://www.merckgroup.com/en/news.html
 BioNTech,https://www.biontech.com,https://www.biontech.com/our-science/pipeline/,https://www.biontech.com/int/en/home/newsroom.html
 Astellas Pharma,https://www.astellas.com,https://www.astellas.com/en/research-development/pipeline,https://www.astellas.com/en/newsroom
 Illumina,https://www.illumina.com,https://www.illumina.com/science/technology/pipeline.html,https://www.illumina.com/company/news-center/press-releases.html
+Iovance,https://www.iovance.com,https://www.iovance.com/pipeline/,https://www.iovance.com/news/
+Nuvalent,https://www.nuvalent.com,https://www.nuvalent.com/pipeline/,https://www.nuvalent.com/news/
+PMV Pharma,https://www.pmvpharma.com,https://www.pmvpharma.com/pipeline/,https://www.pmvpharma.com/news/
+Servier,https://www.servier.com,https://www.servier.com/en/our-pipeline,https://www.servier.com/en/news
+A2,https://www.a2biotherapeutics.com,https://www.a2biotherapeutics.com/pipeline/,https://www.a2biotherapeutics.com/news/
+Bicycle,https://www.bicycletherapeutics.com,https://www.bicycletherapeutics.com/pipeline/,https://www.bicycletherapeutics.com/news/

@@ -20,8 +20,12 @@ class CompanyWebsiteCollector(BaseCollector):
         collected_data = []
         
         # Get company list from CSV
-        companies = get_target_companies()[:max_companies]
+        companies = get_target_companies()
+        if not companies:
+            logger.warning("No companies found in CSV, skipping website collection")
+            return collected_data
         
+        companies = companies[:max_companies]
         logger.info(f"Starting comprehensive company website collection for {len(companies)} companies")
         
         async with AsyncWebCrawler(verbose=False) as crawler:
@@ -130,7 +134,7 @@ class CompanyWebsiteCollector(BaseCollector):
                 logger.warning(f"LLM extraction not available, using regular crawling for {company}")
                 extraction_strategy = "NoExtractionStrategy"
             
-            # Crawl the main website with comprehensive extraction
+            # Crawl the main website with comprehensive extraction and JavaScript content loading
             result = await crawler.arun(
                 url=base_url,
                 word_count_threshold=50,
@@ -138,7 +142,21 @@ class CompanyWebsiteCollector(BaseCollector):
                 bypass_cache=True,
                 max_pages=10,  # Crawl up to 10 pages from the main site
                 max_depth=2,   # Go 2 levels deep from the main page
-                delay_between_requests=1.0  # Be respectful to the server
+                delay_between_requests=1.0,  # Be respectful to the server
+                js_code='''
+                // Wait for content to load
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                
+                // Try to click any 'load more' or 'show all' buttons
+                const buttons = document.querySelectorAll('button, a');
+                for (let button of buttons) {
+                    const text = button.textContent.toLowerCase();
+                    if (text.includes('load') || text.includes('show') || text.includes('more') || text.includes('all')) {
+                        button.click();
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
+                }
+                '''
             )
             
             if result.success:
@@ -497,8 +515,12 @@ class CompanyWebsiteCollector(BaseCollector):
         drug_names = set()
         
         # Get company list from CSV
-        companies = get_target_companies()[:max_companies]
+        companies = get_target_companies()
+        if not companies:
+            logger.warning("No companies found in CSV, skipping pipeline drug collection")
+            return []
         
+        companies = companies[:max_companies]
         logger.info(f"Starting pipeline drug collection for {len(companies)} companies")
         
         async with AsyncWebCrawler(verbose=False) as crawler:
@@ -532,8 +554,12 @@ class CompanyWebsiteCollector(BaseCollector):
         company_drug_mapping = {}
         
         # Get company list from CSV
-        companies = get_target_companies()[:max_companies]
+        companies = get_target_companies()
+        if not companies:
+            logger.warning("No companies found in CSV, skipping pipeline drug collection with associations")
+            return {}
         
+        companies = companies[:max_companies]
         logger.info(f"Starting pipeline drug collection with company associations for {len(companies)} companies")
         
         async with AsyncWebCrawler(verbose=False) as crawler:
@@ -850,121 +876,80 @@ class CompanyWebsiteCollector(BaseCollector):
 
     def _validate_drug_name(self, name: str) -> bool:
         """Validate if a name is likely a drug name using intelligent pattern matching."""
-        if len(name) < 3 or len(name) > 100:
+        if not name or len(name) < 3 or len(name) > 100:
             return False
         
-        # Check if it contains only letters, numbers, and common drug characters
-        if not re.match(r'^[A-Za-z0-9\-\s\/\(\)]+$', name):
+        # Filter out clinical trial IDs
+        if re.match(r'^NCT\d+', name.upper()):
             return False
         
-        # 1. Filter out clinical trial IDs (NCT followed by 8 digits)
-        if re.match(r'^NCT\d{8}$', name):
+        # Filter out study names and codes
+        if re.match(r'^(Lung|Breast|PanTumor|Prostate|GI|Ovarian|Esophageal)\d+$', name):
             return False
         
-        # 2. Filter out study codes (pattern: letters followed by numbers) - but allow company codes
-        if re.match(r'^[A-Z]{2,}\d+$', name) and not any(pattern in name.upper() for pattern in ['RG', 'GDC', 'RGT', 'ABBV', 'DS', 'AMG', 'ABP', 'BAY', 'VVD', 'JNJ', 'TAR', 'REGN', 'MK', 'GS', 'AAA', 'NVL']):
-            return False
-        
-        # 3. Filter out generic terms that are not drug names
-        generic_terms = [
-            'study', 'phase', 'trial', 'code', 'compound', 'molecule', 'agent',
-            'treatment', 'therapy', 'drug', 'medication', 'product', 'candidate', 'program',
-            'development', 'research', 'clinical', 'investigational', 'pipeline',
-            'oncology', 'cancer', 'tumor', 'therapeutic', 'biomarker', 'target',
-            'injection', 'tablet', 'capsule', 'solution', 'oral', 'iv', 'im'
-        ]
+        # Filter out generic protein/antibody terms
+        generic_terms = {
+            'ig', 'igg1', 'igg2', 'igg3', 'igg4', 'igm', 'iga', 'parp1', 'parp2', 'parp3',
+            'tyk2', 'cdh6', 'ror1', 'her3', 'trop2', 'pcsk9', 'ov65'
+        }
         
         if name.lower() in generic_terms:
             return False
         
-        # 4. Filter out very short or very long names that are unlikely to be drugs
-        if len(name) < 4 and not any(suffix in name.lower() for suffix in ['mab', 'nib', 'tinib', 'cept', 'zumab', 'ximab', 'tumab', 'lamab', 'sib', 'lisib', 'ciclib', 'fetinib', 'mig']):
-            return False
-        
-        # 5. Allow company internal codes (RG, GDC, ABBV, etc.)
-        company_code_patterns = [
-            r'^RG\d{3,5}$', r'^GDC-\d{3,5}$', r'^RGT-\d{3,5}$', r'^RO[A-Z]*\d*$',
-            r'^ABBV-\d{2,4}$', r'^ABBV-CLS-\d{2,4}$', r'^DS-\d{3,5}$',
-            r'^AMG ?\d{2,4}$', r'^ABP ?\d{2,4}$', r'^XALURITAMIG$',
-            r'^BAY ?\d{3,7}$', r'^VVD-\d{3,6}$', r'^JNJ-\d{3,5}$', r'^TAR-\d{3}$',
-            r'^REGN\d{3,5}$', r'^MK-\d{3,5}[A-Z]?$', r'^GS-\d{3,5}$',
-            r'^AAA\d{3}$', r'^NVL-\d{3}$', r'^S\d{5}$'
-        ]
-        
-        if any(re.match(pattern, name, re.IGNORECASE) for pattern in company_code_patterns):
-            return True
-        
-        # 6. Allow drug names with common suffixes
-        drug_suffixes = ['mab', 'nib', 'tinib', 'cept', 'zumab', 'ximab', 'tumab', 'lamab', 'sib', 'lisib', 'ciclib', 'fetinib', 'mig', 'vedotin', 'deruxtecan', 'emtansine', 'autoleucel']
-        if any(name.lower().endswith(suffix) for suffix in drug_suffixes):
-            return True
-        
-        # 6b. Allow brand names with common endings
-        brand_suffixes = ['sa', 'ta', 'na', 'ma', 'ga', 'ka', 'la', 'ra', 'va', 'ya', 'za']
-        if any(name.lower().endswith(suffix) for suffix in brand_suffixes) and len(name) >= 5:
-            return True
-        
-        # 7. Allow multi-word drug names (common in ADCs and complex therapies)
-        if ' ' in name and len(name.split()) <= 4:
-            return True
-        
-        # 8. Allow mRNA patterns
-        if re.match(r'^mRNA-\d{3,5}$', name, re.IGNORECASE):
-            return True
-        
-        # 9. Default to False for anything else
-        return False
-        incomplete_patterns = [
-            r'\bis\b$', r'\bwas\b$', r'\bis\s+a\b', r'\bis\s+an\b', 
-            r'\bwas\s+acquired\b', r'\bis\s+being\b', r'\bexcept\s+as\b',
-            r'\bdecline\s+accept\b', r'\baccept\b$'
-        ]
-        if any(re.search(pattern, name.lower()) for pattern in incomplete_patterns):
-            return False
-        
-        # 5. Filter out descriptive phrases (contains drug class descriptions)
-        descriptive_patterns = [
-            r'\bdrug\s+conjugate\b', r'\bsmall\s+molecule\b', r'\btherapeutic\s+protein\b',
-            r'\bbispecific\s+antibody\b', r'\bpeptide\b', r'\bdose\s+combination\b',
-            r'\bmonoclonal\s+antibody\b', r'\bantibody\s+drug\s+conjugate\b'
-        ]
-        if any(re.search(pattern, name.lower()) for pattern in descriptive_patterns):
-            return False
-        
-        # 6. Filter out common English words and generic terms
-        common_words = {
+        # Filter out common false positives
+        false_positives = {
             'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
-            'from', 'into', 'during', 'including', 'until', 'against', 'among', 'throughout',
-            'despite', 'towards', 'upon', 'concerning', 'up', 'about', 'through', 'before', 
-            'after', 'above', 'below', 'down', 'out', 'off', 'over', 'under', 'again', 
-            'further', 'then', 'once', 'here', 'there', 'when', 'where', 'why', 'how', 
-            'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such', 
-            'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 
-            'can', 'will', 'just', 'should', 'now', 'accept', 'except', 'igG1', 'igG'
+            'is', 'was', 'are', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
+            'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might',
+            'can', 'must', 'shall', 'accept', 'except', 'decline', 'drug', 'conjugate',
+            'small', 'molecule', 'therapeutic', 'protein', 'bispecific', 'antibody',
+            'dose', 'combination', 'acquired', 'noted', 'except', 'as', 'was', 'is',
+            'being', 'an', 'a', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for'
         }
         
-        if name.lower() in common_words:
+        if name.lower() in false_positives:
             return False
         
-        # 7. Positive indicators for drug names (more permissive)
+        # Filter out incomplete drug names (ending with common words)
+        incomplete_endings = [' is', ' was', ' being', ' an', ' a', ' the', ' and', ' or']
+        if any(name.endswith(ending) for ending in incomplete_endings):
+            return False
+        
+        # Filter out descriptive phrases
+        descriptive_phrases = ['drug conjugate', 'small molecule', 'therapeutic protein', 'bispecific antibody', 'peptide']
+        if any(phrase in name.lower() for phrase in descriptive_phrases):
+            return False
+        
+        # Positive indicators for actual drug names
         drug_indicators = [
-            # Drug suffixes (monoclonal antibodies, kinase inhibitors, etc.)
-            name.lower().endswith(('mab', 'nib', 'tinib', 'cept', 'zumab', 'ximab', 'mab')),
-            
-            # RG codes (Roche/Genentech internal codes)
-            re.match(r'^rg\d+', name.lower()),
-            
-            # MK codes (Merck internal codes)
+            # Monoclonal antibodies
+            name.lower().endswith(('mab', 'zumab', 'ximab')),
+            # Kinase inhibitors
+            name.lower().endswith(('nib', 'tinib')),
+            # Fusion proteins
+            name.lower().endswith('cept'),
+            # CAR-T therapies
+            name.lower().endswith('leucel'),
+            # ADCs (Antibody Drug Conjugates) - allow space-separated names
+            'deruxtecan' in name.lower(),
+            'vedotin' in name.lower(),
+            'tirumotecan' in name.lower(),
+            # Specific known drugs (expanded list)
+            name.lower() in {
+                'pembrolizumab', 'nivolumab', 'sotatercept', 'patritumab', 'sacituzumab',
+                'zilovertamab', 'nemtabrutinib', 'quavonlimab', 'clesrovimab', 'ifinatamab',
+                'bezlotoxumab', 'ipilimumab', 'relatlimab', 'enasicon', 'dasatinib',
+                'repotrectinib', 'elotuzumab', 'belatacept', 'fedratinib', 'luspatercept',
+                'abatacept', 'deucravacitinib', 'trastuzumab', 'atezolizumab', 'avelumab',
+                'blinatumomab', 'dupilumab', 'ruxolitinib', 'tisagenlecleucel', 'yescarta',
+                'kymriah', 'carvykti', 'abecma', 'breyanzi'
+            },
+            # Merck drug codes
             re.match(r'^mk-\d+', name.lower()),
-            
-            # Complex multi-word names with drug suffixes
-            len(name.split()) > 1 and any(word.endswith(('mab', 'nib', 'tinib', 'cept')) for word in name.split()),
-            
-            # Names with common drug prefixes/suffixes
-            re.search(r'(pembrolizumab|nivolumab|sotatercept|patritumab|sacituzumab|zilovertamab|nemtabrutinib|quavonlimab|clesrovimab|ifinatamab|bezlotoxumab)', name.lower()),
-            
-            # Allow names that look like drug names (capitalized, reasonable length)
-            len(name) >= 4 and name[0].isupper() and not re.match(r'^[A-Z]{2,4}\d*$', name) and not re.match(r'^NCT\d+', name)
+            # Roche drug codes
+            re.match(r'^rg\d+', name.lower()),
+            # Allow drug names with spaces (like "Patritumab Deruxtecan")
+            len(name.split()) >= 2 and any(word.endswith(('mab', 'nib', 'tinib', 'cept', 'leucel')) for word in name.split()),
         ]
         
         return any(drug_indicators)
@@ -1125,6 +1110,24 @@ class CompanyWebsiteCollector(BaseCollector):
         company_lower = company.lower().replace(" ", "").replace("&", "").replace("(", "").replace(")", "")
         return f"https://www.{company_lower}.com/pipeline"
     
+    async def _discover_pipeline_pages(self, crawler, company: str) -> List[str]:
+        """Discover pipeline pages for a company using multiple strategies."""
+        pipeline_urls = []
+        
+        # Strategy 1: Use CSV pipeline URL if available
+        csv_pipeline_url = self._get_company_pipeline_url(company)
+        if csv_pipeline_url and not csv_pipeline_url.endswith("/pipeline"):
+            pipeline_urls.append(csv_pipeline_url)
+        
+        # Strategy 2: Try to discover pipeline pages from main website
+        main_website = self._get_company_website(company)
+        if main_website:
+            discovered_urls = await self._find_pipeline_pages(crawler, main_website)
+            pipeline_urls.extend(discovered_urls)
+        
+        # Remove duplicates and return
+        return list(set(pipeline_urls))
+    
     def _get_company_news_url(self, company: str) -> Optional[str]:
         """Get company news/press release URL from CSV."""
         try:
@@ -1244,8 +1247,12 @@ class CompanyWebsiteCollector(BaseCollector):
         collected_data = []
         
         # Get company list from CSV
-        companies = get_target_companies()[:max_companies]
+        companies = get_target_companies()
+        if not companies:
+            logger.warning("No companies found in CSV, skipping news collection")
+            return collected_data
         
+        companies = companies[:max_companies]
         logger.info(f"Starting news collection for {len(companies)} companies")
         
         async with AsyncWebCrawler(verbose=False) as crawler:
@@ -1491,6 +1498,37 @@ class CompanyWebsiteCollector(BaseCollector):
             ])
         
         return content
+    
+    async def _find_pipeline_pages(self, crawler, base_url: str) -> List[str]:
+        """Find pipeline-related pages on company website."""
+        pipeline_keywords = ["pipeline", "development", "research", "programs", "portfolio"]
+        found_urls = []
+        
+        # Common pipeline URL patterns
+        common_paths = [
+            "/pipeline",
+            "/research",
+            "/development", 
+            "/research-development",
+            "/our-pipeline",
+            "/development-pipeline",
+            "/research/pipeline",
+            "/pipeline/development"
+        ]
+        
+        for path in common_paths:
+            url = base_url.rstrip('/') + path
+            try:
+                result = await crawler.arun(url=url, bypass_cache=True)
+                if result.success and result.cleaned_html:
+                    # Check if page contains pipeline-related content
+                    content_lower = result.cleaned_html.lower()
+                    if any(keyword in content_lower for keyword in pipeline_keywords):
+                        found_urls.append(url)
+            except:
+                continue
+        
+        return found_urls
     
     def parse_data(self, raw_data: Any) -> List[CollectedData]:
         """Parse raw data into CollectedData objects."""

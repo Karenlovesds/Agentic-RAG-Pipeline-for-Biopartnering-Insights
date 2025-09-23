@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """Production runner for the Biopartnering Insights Pipeline with monitoring and scheduling."""
 
-import os
 import sys
-import signal
 import time
 import argparse
 from pathlib import Path
@@ -11,6 +9,7 @@ from loguru import logger
 from src.monitoring.scheduler import create_scheduler
 from src.monitoring.notifications import create_notification_manager
 from src.monitoring.change_detector import WebsiteChangeDetector
+from common_utils import SignalHandler, setup_production_logging
 
 
 class ProductionRunner:
@@ -23,57 +22,17 @@ class ProductionRunner:
         self.running = False
         
         # Setup logging
-        self._setup_logging()
+        setup_production_logging()
         
         # Initialize components
         self.scheduler = create_scheduler(enable_monitoring, enable_weekly_runs)
         self.notification_manager = create_notification_manager() if enable_notifications else None
         self.change_detector = WebsiteChangeDetector()
         
-        # Setup signal handlers
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
+        # Setup signal handling
+        self.signal_handler = SignalHandler()
     
-    def _setup_logging(self):
-        """Setup comprehensive logging for production."""
-        # Create logs directory
-        Path("logs").mkdir(exist_ok=True)
-        
-        # Configure loguru
-        logger.remove()  # Remove default handler
-        
-        # Console logging
-        logger.add(
-            sys.stdout,
-            level="INFO",
-            format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-            colorize=True
-        )
-        
-        # File logging
-        logger.add(
-            "logs/production.log",
-            rotation="1 day",
-            retention="30 days",
-            level="DEBUG",
-            format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
-            compression="zip"
-        )
-        
-        # Error logging
-        logger.add(
-            "logs/errors.log",
-            rotation="1 week",
-            retention="90 days",
-            level="ERROR",
-            format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
-            compression="zip"
-        )
-    
-    def _signal_handler(self, signum, frame):
-        """Handle shutdown signals gracefully."""
-        logger.info(f"Received signal {signum}, initiating graceful shutdown...")
-        self.stop()
+    # Logging and signal handling moved to common_utils.py
     
     def start(self):
         """Start the production pipeline."""
@@ -117,7 +76,7 @@ class ProductionRunner:
         """Main production loop."""
         logger.info("🔄 Production loop started")
         
-        while self.running:
+        while self.signal_handler.running:
             try:
                 # Check scheduler status
                 status = self.scheduler.get_status()
