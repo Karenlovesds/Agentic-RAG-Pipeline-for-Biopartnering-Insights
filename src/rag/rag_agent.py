@@ -113,14 +113,20 @@ def _search_drugs(db: Session, query: str, limit: int = 5) -> List[Dict[str, Any
         elif 'novartis' in query_lower:
             drug_query = drug_query.filter(Company.name.ilike('%Novartis%'))
     else:
-        # Search by drug name
+        # Search by drug name, mechanism, or drug class
         drug_query = drug_query.filter(
             (Drug.generic_name.ilike(f'%{query}%')) |
-            (Drug.brand_name.ilike(f'%{query}%'))
+            (Drug.brand_name.ilike(f'%{query}%')) |
+            (Drug.mechanism_of_action.ilike(f'%{query}%')) |
+            (Drug.drug_class.ilike(f'%{query}%'))
         )
     
     # Get results
     drug_results = drug_query.limit(limit).all()
+    
+    # If no specific matches found, return some general drugs for context
+    if not drug_results and any(keyword in query_lower for keyword in ['drug', 'mechanism', 'action', 'target', 'therapy', 'treatment']):
+        drug_results = db.query(Drug).join(Company).limit(limit).all()
     
     for drug in drug_results:
         # Get targets
@@ -280,7 +286,8 @@ class EnhancedBasicRAGAgent:
             
             DATA SOURCE GUIDANCE:
             - If the context contains relevant information about the question, use it and indicate "📊 Data Source: Internal Database"
-            - If the context is empty or doesn't contain relevant information about the specific question, you MUST say "I don't know" and indicate "❓ I don't know - No relevant information found in the database. Would you like me to search public data sources for this information?"
+            - If the context contains drugs/drugs information but not the specific drug mentioned, provide information about available drugs and indicate "📊 Data Source: Internal Database"
+            - If the context is completely empty or doesn't contain any relevant information about the specific question, you MUST say "I don't know" and indicate "❓ I don't know - No relevant information found in the database. Would you like me to search public data sources for this information?"
             - DO NOT MAKE UP ANSWERS. DO NOT use general knowledge to answer questions about drugs, companies, clinical trials, or biopharmaceutical topics if the context doesn't contain relevant information
             - Only use general knowledge for completely unrelated topics (like geography, history, etc.) and indicate "🌐 Data Source: Public Information"
             - NEVER fabricate or invent information. If you don't know, say "I don't know."
