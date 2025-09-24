@@ -265,7 +265,7 @@ class EnhancedBasicRAGAgent:
             IMPORTANT: At the end of your response, clearly indicate your data source:
             - If you used the provided context documents/database: "📊 Data Source: Internal Database"
             - If you relied on general knowledge: "🌐 Data Source: Public Information"
-            - If you cannot answer based on the provided context: "❓ I don't know - No relevant information found in the database"
+            - If you cannot answer based on the provided context: "❓ I don't know - No relevant information found in the database. Would you like me to search public data sources for this information?"
             """
             
             user_prompt = f"""
@@ -280,11 +280,12 @@ class EnhancedBasicRAGAgent:
             
             DATA SOURCE GUIDANCE:
             - If the context contains relevant information about the question, use it and indicate "📊 Data Source: Internal Database"
-            - If the context is empty or doesn't contain relevant information about the specific question, you MUST say "I don't know" and indicate "❓ I don't know - No relevant information found in the database"
+            - If the context is empty or doesn't contain relevant information about the specific question, you MUST say "I don't know" and indicate "❓ I don't know - No relevant information found in the database. Would you like me to search public data sources for this information?"
             - DO NOT MAKE UP ANSWERS. DO NOT use general knowledge to answer questions about drugs, companies, clinical trials, or biopharmaceutical topics if the context doesn't contain relevant information
             - Only use general knowledge for completely unrelated topics (like geography, history, etc.) and indicate "🌐 Data Source: Public Information"
             - NEVER fabricate or invent information. If you don't know, say "I don't know."
             - Always be transparent about your data source at the end of your response.
+            - When offering to search public data sources, be clear that public data may not include business context or validation.
             """
             
             # Generate response
