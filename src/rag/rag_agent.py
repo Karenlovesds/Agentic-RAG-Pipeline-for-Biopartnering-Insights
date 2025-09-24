@@ -260,9 +260,12 @@ class EnhancedBasicRAGAgent:
             When mentioning companies, include their business priority level and ticket numbers when available.
             Prioritize ground truth data for accuracy, but supplement with pipeline data for completeness.
             
+            CRITICAL: DO NOT MAKE UP ANSWERS. If you don't know something, say "I don't know."
+            
             IMPORTANT: At the end of your response, clearly indicate your data source:
             - If you used the provided context documents/database: "📊 Data Source: Internal Database"
             - If you relied on general knowledge: "🌐 Data Source: Public Information"
+            - If you cannot answer based on the provided context: "❓ I don't know - No relevant information found in the database"
             """
             
             user_prompt = f"""
@@ -277,7 +280,10 @@ class EnhancedBasicRAGAgent:
             
             DATA SOURCE GUIDANCE:
             - If the context contains relevant information about the question, use it and indicate "📊 Data Source: Internal Database"
-            - If the context is empty or doesn't contain relevant information, you may use general knowledge but MUST indicate "🌐 Data Source: Public Information"
+            - If the context is empty or doesn't contain relevant information about the specific question, you MUST say "I don't know" and indicate "❓ I don't know - No relevant information found in the database"
+            - DO NOT MAKE UP ANSWERS. DO NOT use general knowledge to answer questions about drugs, companies, clinical trials, or biopharmaceutical topics if the context doesn't contain relevant information
+            - Only use general knowledge for completely unrelated topics (like geography, history, etc.) and indicate "🌐 Data Source: Public Information"
+            - NEVER fabricate or invent information. If you don't know, say "I don't know."
             - Always be transparent about your data source at the end of your response.
             """
             
