@@ -259,6 +259,10 @@ class EnhancedBasicRAGAgent:
             
             When mentioning companies, include their business priority level and ticket numbers when available.
             Prioritize ground truth data for accuracy, but supplement with pipeline data for completeness.
+            
+            IMPORTANT: At the end of your response, clearly indicate your data source:
+            - If you used the provided context documents/database: "📊 Data Source: Internal Database"
+            - If you relied on general knowledge: "🌐 Data Source: Public Information"
             """
             
             user_prompt = f"""
@@ -270,6 +274,11 @@ class EnhancedBasicRAGAgent:
             Please provide a comprehensive answer based on the context provided.
             If you mention specific drugs, include their company, drug class, and key details.
             If you mention clinical trials, include NCT IDs and status.
+            
+            DATA SOURCE GUIDANCE:
+            - If the context contains relevant information about the question, use it and indicate "📊 Data Source: Internal Database"
+            - If the context is empty or doesn't contain relevant information, you may use general knowledge but MUST indicate "🌐 Data Source: Public Information"
+            - Always be transparent about your data source at the end of your response.
             """
             
             # Generate response

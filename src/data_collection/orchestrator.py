@@ -9,8 +9,6 @@ from .clinical_trials_collector import ClinicalTrialsCollector
 from .fda_collector import FDACollector
 from .company_website_collector import CompanyWebsiteCollector
 from .drugs_collector import DrugsCollector
-from ..models.database import get_db
-from ..models.entities import Drug
 
 # Add project root to path for maintenance imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -28,78 +26,6 @@ class DataCollectionOrchestrator:
         }
         self.run_maintenance = run_maintenance
     
-    def _get_drug_names_from_database(self, limit: int = 10) -> List[str]:
-        """Get drug names from the database for data collection."""
-        try:
-            session = get_db()
-            try:
-                # Get unique drug names (both generic and brand names)
-                drugs = session.query(Drug.generic_name, Drug.brand_name).filter(
-                    Drug.generic_name.isnot(None)
-                ).distinct().limit(limit).all()
-                
-                drug_names = []
-                for generic_name, brand_name in drugs:
-                    if generic_name:
-                        drug_names.append(generic_name)
-                    if brand_name and brand_name.strip():
-                        drug_names.append(brand_name)
-                
-                logger.info(f"Retrieved {len(drug_names)} drug names from database")
-                return drug_names
-            finally:
-                session.close()
-        except Exception as e:
-            logger.error(f"Error getting drug names from database: {e}")
-            # Fallback to default drug names
-            return      [
-            # Common Roche/Genentech marketed
-            "Atezolizumab","Giredestrant","Codrituzumab","Inavolisib","Polatuzumab vedotin piiq",
-            "Mosunetuzumab","Trastuzumab emtansine","Cevostamab","Clesitamig","Divarasib",
-            "Glofitamab","Mosperafenib","Alectinib","Autogene cevumeran","Cobimetinib",
-            "Entrectinib","Pertuzumab","Tiragolumab","Trastuzumab","Vemurafenib","Venclexta",
-            "Vismodegib","Bevacizumab","Obinutuzumab","Rituximab",
-            # AbbVie/Gilead/etc.
-            "Teliso-V","Epcoritamab","Mirvetuximab soravtansine",
-            # Daiichi ADCs
-            "Trastuzumab deruxtecan","Datopotamab deruxtecan-dlnk","Patrituzumab deruxtecan","Ifinatamab deruxtecan","Raludotatug deruxtecan",
-            # AZ/JNJ/MSD/etc. (selected)
-            "Durvalumab","Osimertinib","Olaparib","Tremelimumab","Gefitinib","Moxetumomab pasudotox",
-            "Bemarituzumab","Blinatumomab","Tarlatamab-dlle","Sotorasib",
-            "Carfilzomib","Enfortumab vedotin","Gilteritinib","Zolbetuximab","Fezolinetant",
-            "Darolutamide","Sevabertinib",
-            # Merck MK names
-            "Pembrolizumab","Belzutifan","Zilovertamab vedotin","Bomedemstat",
-            # Additional common oncology drugs
-            "Nivolumab","Ipilimumab","Avelumab","Cemiplimab","Doxorubicin","Cisplatin",
-            "Carboplatin","Paclitaxel","Docetaxel","Gemcitabine","Fluorouracil",
-            "Methotrexate","Cyclophosphamide","Etoposide","Imatinib","Sorafenib",
-            "Sunitinib","Erlotinib","Gefitinib","Cetuximab","Panitumumab",
-            "Lapatinib","Everolimus","Temsirolimus","Rituximab","Bevacizumab"
-        ]
-
-    async def _collect_clinical_trials(self) -> List[Any]:
-        """Collect clinical trials using multiple strategies."""
-        all_data = []
-        
-        # 1. Company keyword searches
-        keyword_data = await self.collectors["clinical_trials"].collect_company_keyword_trials(max_companies=5)
-        all_data.extend(keyword_data)
-        
-        # 2. Drug-specific searches
-        drug_names = self._get_drug_names_from_database(limit=20)
-        drug_data = await self.collectors["clinical_trials"].collect_company_drug_trials({
-            "General Search": drug_names
-        })
-        all_data.extend(drug_data)
-        
-        return all_data
-
-    async def _collect_drugs(self) -> List[Any]:
-        """Collect drug data with database drugs."""
-        drug_names = self._get_drug_names_from_database(limit=25)
-        return await self.collectors["drugs"].collect_data(drug_names)
-    
     async def run_full_collection(self, sources: List[str]) -> Dict[str, int]:
         """Run data collection for specified sources."""
         results = {}
@@ -107,7 +33,7 @@ class DataCollectionOrchestrator:
         # Run maintenance before data collection if enabled
         if self.run_maintenance:
             try:
-                from src.maintenance.maintenance_orchestrator import run_maintenance
+                from scripts.maintenance.maintenance_orchestrator import run_maintenance
                 logger.info("🔧 Running database maintenance before data collection...")
                 maintenance_results = await run_maintenance()
                 results["maintenance"] = maintenance_results
@@ -116,32 +42,22 @@ class DataCollectionOrchestrator:
                 logger.error(f"❌ Maintenance failed: {e}")
                 results["maintenance"] = {"error": str(e)}
         
-        # Simplified collection configuration
-        collection_config = {
-            "clinical_trials": lambda: self._collect_clinical_trials(),
-            "fda": lambda: self.collectors["fda"].collect_data(['drug_approvals', 'adverse_events', 'surrogate_endpoints']),
-            "company_websites": lambda: self.collectors["company_websites"].collect_data(max_companies=5),
-            "drugs": lambda: self._collect_drugs(),
-            "drug_interactions": lambda: self.collectors["drugs"].collect_data([('warfarin', 'aspirin'), ('metformin', 'insulin')]),
-            "fda_indications": lambda: self.collectors["fda"].extract_indications_for_existing_drugs(),
-            "clinical_trials_population": lambda: self.collectors["clinical_trials"].populate_trials_for_existing_drugs(),
-        }
-        
         for source in sources:
             try:
                 logger.info(f"Starting collection from {source}")
                 
-                if source not in collection_config:
+                if source == "clinical_trials":
+                    data = await self.collectors[source].collect_data({'pageSize': 10})
+                elif source == "fda":
+                    data = await self.collectors[source].collect_data(['drug_approvals', 'adverse_events'])
+                elif source == "company_websites":
+                    data = await self.collectors[source].collect_data(max_companies=2)
+                elif source == "drugs":
+                    data = await self.collectors[source].collect_data(['metformin', 'lisinopril', 'atorvastatin'])
+                elif source == "drug_interactions":
+                    data = await self.collectors[source].collect_data([('warfarin', 'aspirin'), ('metformin', 'insulin')])
+                else:
                     logger.warning(f"Unknown source: {source}")
-                    continue
-                
-                # Collect data using simplified config
-                data = await collection_config[source]()
-                
-                # Handle special cases that don't return data to save
-                if source in ["fda_indications", "clinical_trials_population"]:
-                    results[source] = data
-                    logger.info(f"✅ {source} completed: {data}")
                     continue
                 
                 # Save documents

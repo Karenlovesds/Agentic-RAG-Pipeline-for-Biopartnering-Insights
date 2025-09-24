@@ -10,9 +10,6 @@ Before starting, ensure you have:
 - **Git** (for cloning the repository)
 - **Conda** (recommended) or **pip** (for package management)
 - **Ollama** (for local AI models) OR **OpenAI API key** (for cloud models)
-- **Docker** (optional, for containerized deployment)
-- **PostgreSQL** (for database storage)
-- **Ground Truth Data** (Pipeline_Ground_Truth.xlsx file for validation)
 
 ## 🔧 Step-by-Step Setup
 
@@ -52,29 +49,6 @@ Create a `.env` file in the project root:
 ```bash
 # Create .env file
 touch .env  # On Windows: type nul > .env
-```
-
-### 4. Set Up Ground Truth Data
-
-Ensure the `data/Pipeline_Ground_Truth.xlsx` file is present for validation and business intelligence features:
-
-```bash
-# Verify ground truth file exists
-ls -la data/Pipeline_Ground_Truth.xlsx
-```
-
-### 5. Verify Output Structure
-
-The pipeline generates consolidated output files:
-
-```bash
-# Check for main output files
-ls -la outputs/
-# Should show:
-# - drugs_dashboard.csv (consolidated drug data)
-# - drug_collection_summary.txt (pipeline summary)
-# - validation_results.json (ground truth validation)
-# - company_overlap_analysis.csv (overlap analysis)
 ```
 
 Add the following content to `.env`:
@@ -155,10 +129,7 @@ python run_pipeline.py --help
 python run_pipeline.py maintenance
 
 # Test data collection (optional)
-python run_pipeline.py data-collect
-
-# Test validation (optional)
-python scripts/validation/run_validation.py
+python run_pipeline.py data-collect --sources clinical_trials
 ```
 
 ### 7. Launch the Web Interface
@@ -187,22 +158,13 @@ python run_pipeline.py data-collect  # Data collection
 python run_pipeline.py process       # Data processing
 python run_pipeline.py export        # Export CSV files
 
-# Validation and analysis
-python scripts/validation/run_validation.py  # Run ground truth validation
-python scripts/analysis/overlap_analysis.py  # Run company overlap analysis
-
 # Start web interface
 python run_pipeline.py web
-
-# Docker deployment (alternative)
-docker-compose up --build  # Start with Docker
-docker run -p 8501:8501 biopartnering-insights  # Run single container
 
 # Using Makefile (alternative)
 make run          # Run complete pipeline
 make maintenance  # Run maintenance
 make web          # Start web interface
-make docker       # Build and run with Docker
 ```
 
 ## 🔍 Troubleshooting
@@ -278,9 +240,6 @@ After successful setup, you'll have:
 - **Database**: SQLite database with collected biopharma data
 - **CSV Exports**: Structured data files in `outputs/` directory
 - **RAG Agent**: AI-powered query system for biopartnering insights
-- **Ground Truth Validation**: Compare pipeline data against curated ground truth
-- **Business Intelligence**: Market analysis, business analysis, company overlap analysis, and priority-based company breakdowns
-- **Docker Support**: Containerized deployment option
 - **Maintenance System**: Automated data quality management
 
 ## 🎉 Next Steps
@@ -288,10 +247,8 @@ After successful setup, you'll have:
 1. **Explore the Dashboard**: Navigate through the different sections
 2. **Try the RAG Agent**: Ask questions about biopharma drugs and companies
 3. **Run Data Collection**: Collect fresh data from various sources
-4. **Check Ground Truth Validation**: Compare pipeline data against curated ground truth
-5. **Explore Business Intelligence**: Use Market Analysis, Business Analysis, and Company Overlap Analysis dashboards
-6. **Check Exports**: Review the generated CSV files
-7. **Read the Documentation**: Check `docs/` folder for detailed guides
+4. **Check Exports**: Review the generated CSV files
+5. **Read the Documentation**: Check `docs/` folder for detailed guides
 
 ## 📞 Support
 
@@ -305,5 +262,3 @@ If you encounter issues:
 ---
 
 **Happy Biopartnering! 🧬🚀**
-
-

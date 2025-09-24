@@ -133,12 +133,7 @@ DRUG_TARGET_MAPPING = {
 
 def ensure_companies(db: Session) -> int:
     count_created = 0
-    companies = get_target_companies()
-    if not companies:
-        logger.warning("No companies found in CSV, skipping company creation")
-        return count_created
-    
-    for name in companies:
+    for name in get_target_companies():
         if not db.query(Company).filter(Company.name == name).first():
             db.add(Company(name=name))
             count_created += 1
@@ -484,10 +479,13 @@ def deduplicate_drugs_within_company(db: Session) -> dict:
 def generate_csv_exports(db: Session) -> dict:
     """Generate CSV exports automatically after database updates."""
     try:
-        from .csv_export import export_drugs_dashboard
+        from .csv_export import export_basic, export_drug_table
         
-        # Generate the main drugs dashboard CSV
-        drugs_csv = export_drugs_dashboard(db, "outputs/drugs_dashboard.csv")
+        # Generate the main biopharma drugs CSV
+        biopharma_csv = export_drug_table(db, "outputs/biopharma_drugs.csv")
+        
+        # Generate basic export CSV
+        basic_csv = export_basic(db, "outputs/basic_export.csv")
         
         # Generate drug collection summary
         summary_content = generate_drug_summary(db)
@@ -496,7 +494,8 @@ def generate_csv_exports(db: Session) -> dict:
         
         logger.info("✅ CSV exports generated successfully")
         return {
-            "drugs_dashboard_csv": drugs_csv,
+            "biopharma_drugs_csv": biopharma_csv,
+            "basic_export_csv": basic_csv,
             "drug_summary_txt": "outputs/drug_collection_summary.txt",
             "success": True
         }
@@ -521,23 +520,16 @@ def generate_drug_summary(db: Session) -> str:
         # Get drugs by company
         companies_with_drugs = db.query(Company).join(Drug).distinct().all()
         
-        # Get actual document counts
-        fda_docs = db.query(Document).filter(Document.source_type.like('%fda%')).count()
-        drugs_com_docs = db.query(Document).filter(Document.source_type.like('%drugs%')).count()
-        clinical_trial_docs = db.query(Document).filter(Document.source_type.like('%clinical%')).count()
-        company_docs = db.query(Document).filter(Document.source_type.like('%company%')).count()
-        total_documents = db.query(Document).count()
-        
         summary_lines = [
             "Comprehensive Drug Collection Summary",
             "========================================",
             "",
             f"Pipeline Drugs Found: {total_drugs}",
-            f"FDA Documents: {fda_docs}",
-            f"Drugs.com Documents: {drugs_com_docs}",
+            f"FDA Documents: 0",  # Placeholder
+            f"Drugs.com Documents: 0",  # Placeholder
             f"Clinical Trials: {total_trials}",
             f"Targets: {total_targets}",
-            f"Total Documents: {total_documents}",
+            f"Total Documents: 0",  # Placeholder
             f"Success: True",
             "",
             "Pipeline Drugs by Company:",
@@ -562,38 +554,38 @@ def generate_drug_summary(db: Session) -> str:
 
 
 def run_processing(db: Session) -> dict:
-    """Main processing pipeline - simplified and consolidated."""
     logger.info("Processing pipeline start")
-    
-    # Step 1: Entity extraction
-    from .entity_extractor import EntityExtractor
-    extractor = EntityExtractor(db)
-    extraction_results = extractor.extract_all_entities()
-    
-    # Step 2: Link entities and create relationships
+    created_companies = ensure_companies(db)
+    created_drugs = extract_drugs_from_documents(db)
     linked_trials = link_trials_to_companies(db)
-    targets_extracted = extract_targets_from_documents(db) + extract_targets_from_drug_names(db)
+    
+    # Extract targets from documents and drug names
+    targets_from_docs = extract_targets_from_documents(db)
+    targets_from_names = extract_targets_from_drug_names(db)
+    
+    # Backfill drug-target relationships
     drug_target_relationships = backfill_drug_targets(db)
+    
+    # Link clinical trials to drugs
     trials_linked_to_drugs = link_clinical_trials_to_drugs(db)
     
-    # Step 3: Clean up and deduplicate
+    # Remove duplicates within the same company
     deduplication_results = deduplicate_drugs_within_company(db)
     
-    # Step 4: Generate outputs
+    # Auto-generate CSV files
     csv_results = generate_csv_exports(db)
     
     logger.info("Processing pipeline done")
     return {
-        "entity_extraction": extraction_results,
+        "companies_created": created_companies,
+        "drugs_created": created_drugs,
         "trials_linked": linked_trials,
-        "targets_extracted": targets_extracted,
+        "targets_from_docs": targets_from_docs,
+        "targets_from_names": targets_from_names,
         "drug_target_relationships": drug_target_relationships,
         "trials_linked_to_drugs": trials_linked_to_drugs,
         "deduplication": deduplication_results,
         "csv_generated": csv_results,
     }
-
-
-# Removed redundant async functions - use run_processing() instead
 
 

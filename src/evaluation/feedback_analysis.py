@@ -373,7 +373,42 @@ def get_feedback_insights(feedback_analysis: Dict[str, Any],
     return insights
 
 
+# Example usage and testing functions
+def demo_feedback_analysis():
+    """Demonstrate the feedback analysis functionality with sample data."""
+    # Sample feedback data
+    sample_feedback = {
+        0: 4,  # Good rating
+        1: 2,  # Fair rating
+        2: 5,  # Excellent rating
+        3: 3,  # Good rating
+        4: 1   # Poor rating
+    }
+    
+    sample_detailed_feedback = {
+        0: ["too_technical"],
+        1: ["incorrect_info", "outdated"],
+        2: [],  # No issues
+        3: ["too_brief", "missing_info"],
+        4: ["incorrect_info", "unreliable", "hard_to_understand"]
+    }
+    
+    # Analyze patterns
+    analysis = analyze_feedback_patterns(sample_detailed_feedback)
+    print("Feedback Analysis:", analysis)
+    
+    # Get recommendations
+    recommendations = get_improvement_recommendations(analysis)
+    print("Recommendations:", recommendations)
+    
+    # Generate summary
+    summary = generate_feedback_summary(sample_feedback, sample_detailed_feedback)
+    print("Summary:", summary)
+    
+    # Get insights
+    insights = get_feedback_insights(analysis, recommendations)
+    print("Insights:", insights)
 
 
-
-
+if __name__ == "__main__":
+    demo_feedback_analysis()

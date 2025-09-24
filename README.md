@@ -1,32 +1,25 @@
 # 🧬 Agentic RAG Pipeline for Biopartnering Insights
 
-An intelligent, production-ready pipeline that automatically generates potential ideas for biopartnering and provides professional, reference-backed insights on biomarkers and drugs. This system combines automated data collection, structured knowledge curation, AI-powered querying, ground truth validation, and comprehensive business analysis into one streamlined workflow.
+An intelligent, production-ready pipeline that automatically generates potential ideas for biopartnering and provides professional, reference-backed insights on biomarkers and drugs. This system combines automated data collection, structured knowledge curation, AI-powered querying, and intelligent monitoring into one streamlined workflow.
 
 ## 🎯 Overview
 
-This pipeline automatically collects, processes, and analyzes biomedical data from trusted sources to provide actionable biopartnering insights. It's designed to help researchers, data science teams, and leadership make faster, more confident decisions with full transparency and auditability. The system is production-ready with automated monitoring, change detection, scheduled updates, and comprehensive business intelligence dashboards.
+This pipeline automatically collects, processes, and analyzes biomedical data from trusted sources to provide actionable biopartnering insights. It's designed to help researchers, BD teams, and leadership make faster, more confident decisions with full transparency and auditability. The system is production-ready with automated monitoring, change detection, and scheduled updates.
 
 ## ✨ Key Features
 
 - **🤖 Intelligent Drug Extraction**: Advanced web scraping with JavaScript execution to extract drug names from company pipeline pages
 - **🔄 Automated Data Collection**: Crawls ClinicalTrials.gov, Drugs.com, FDA, and company websites with improved extraction
-- **📊 Comprehensive Knowledge Base**: Normalized entities with proper relationships and versioning (67 pipeline drugs, 291 ground truth drugs, 98 companies, 187 targets, 1,741 clinical trials, 4,971 documents)
-- **🧠 Enhanced RAG Agent**: Ground truth integration with business context, dual-provider support (OpenAI/Ollama), and cross-source validation
+- **📊 Structured Knowledge Base**: Normalized entities with proper relationships and versioning (69+ drugs collected)
+- **🧠 AI-Powered RAG Agent**: Dual-provider support (OpenAI/Ollama) with contextual answers and citations
 - **🎨 Interactive UI**: Streamlit-based interface with comprehensive filtering and real-time monitoring
-- **📈 Standardized Outputs**: CSV exports for pipeline reviews and data science analysis
+- **📈 Standardized Outputs**: CSV exports for pipeline reviews and BD targeting
 - **🔍 Evaluation Framework**: RAGAS metrics and manual validation for reliability
-- **✅ Ground Truth Validation**: Comprehensive validation system comparing pipeline data against curated ground truth
-- **📊 Business Intelligence**: Advanced analytics dashboards for market analysis and business insights
-- **🎯 Company Overlap Analysis**: Identify and analyze companies present in both ground truth and pipeline data
-- **📈 Priority-Based Analysis**: Strategic company prioritization with High/Mid/Low priority breakdowns
-- **💼 Business Efficiency Analysis**: Company portfolio analysis with drug and target visibility
 - **⚡ Production Monitoring**: Website change detection and automated pipeline updates
 - **📧 Smart Notifications**: Email alerts for changes and scheduled runs
-- **🚀 Production Deployment**: Docker containerization, systemd service, cron jobs, and comprehensive logging
+- **🚀 Production Deployment**: Systemd service, cron jobs, and comprehensive logging
 - **💾 Intelligent Caching**: RAG response caching for improved performance
-- **🔍 Advanced Filtering**: Multi-filter system for precise drug discovery (Generic Name, Brand Name, Drug Class, FDA Status, Approved Indication, Clinical Trials, Company, Target)
-- **🎯 Ground Truth RAG Integration**: Enhanced RAG system with 291 validated drugs, business context (ticket numbers, priorities), and cross-source validation
-- **💼 Business Context Intelligence**: Ticket-based prioritization, company portfolio analysis, and strategic insights for biopartnering
+- **🔍 Advanced Filtering**: 6-filter system for precise drug discovery (Generic Name, Brand Name, Drug Class, FDA Status, Approved Indication, Clinical Trials)
 
 ## 🏗️ Architecture
 
@@ -35,7 +28,7 @@ This pipeline automatically collects, processes, and analyzes biomedical data fr
 │   Data Sources  │    │  Knowledge Base  │    │   RAG Agent     │
 │                 │    │                  │    │                 │
 │ • ClinicalTrials│───▶│ • Companies      │───▶│ • Pydantic AI   │
-│ • Drugs.com     │    │ • Drugs (67+291) │    │ • Ground Truth │
+│ • Drugs.com     │    │ • Drugs (69+)    │    │ • Dual Provider │
 │ • FDA           │    │ • Targets        │    │ • Citations     │
 │ • Company Sites │    │ • Indications    │    │ • Confidence    │
 │ • Enhanced      │    │ • Clinical Trials│    │ • Caching       │
@@ -47,24 +40,10 @@ This pipeline automatically collects, processes, and analyzes biomedical data fr
                        │   Streamlit UI  │
                        │                 │
                        │ • Chat Interface│
-                       │ • Multi-Filter  │
+                       │ • 6-Filter System│
                        │ • Evidence Pane │
-                       │ • Ground Truth  │
-                       │ • Business Intel│
-                       │ • Overlap Analysis│
+                       │ • Monitoring    │
                        │ • User Feedback │
-                       └─────────────────┘
-                                │
-                                ▼
-                       ┌─────────────────┐
-                       │   Validation    │
-                       │   & Analytics   │
-                       │                 │
-                       │ • Ground Truth  │
-                       │ • Market Analysis│
-                       │ • Business Intel│
-                       │ • Company Overlap│
-                       │ • Quality Metrics│
                        └─────────────────┘
                                 │
                                 ▼
@@ -75,7 +54,6 @@ This pipeline automatically collects, processes, and analyzes biomedical data fr
                        │ • Change Detect │
                        │ • Scheduler     │
                        │ • Notifications │
-                       │ • Docker Deploy │
                        │ • Logging       │
                        └─────────────────┘
 ```
@@ -85,7 +63,6 @@ This pipeline automatically collects, processes, and analyzes biomedical data fr
 ### Prerequisites
 
 - Python 3.11+
-- PostgreSQL (for production) or SQLite (for development)
 - OpenAI API key (or Ollama for local models)
 - Git
 - Conda (recommended)
@@ -125,77 +102,6 @@ cp .env.example .env
    streamlit run scripts/main/streamlit_app.py
    ```
 
-## 🐳 Docker Deployment (Recommended)
-
-For easy deployment and portability, use Docker. The project is fully compatible with Docker 26.x and includes comprehensive containerization.
-
-### Prerequisites
-- Docker installed ([installation guide](https://docs.docker.com/get-docker/))
-- Docker Compose (optional, for easier management)
-
-### Quick Start with Docker
-
-1. **Install Docker**
-   Visit [Docker's official installation guide](https://docs.docker.com/get-docker/) for your operating system.
-
-2. **Build and Run**
-   ```bash
-   # Make scripts executable
-   chmod +x build-docker.sh docker-entrypoint.sh
-   
-   # Build the Docker image
-   ./build-docker.sh
-   
-   # Or manually
-   docker build -t biopartnering-insights .
-   ```
-
-3. **Start the Dashboard**
-   ```bash
-   # Using Docker Compose (Recommended)
-   docker-compose up --build
-   
-   # Or using Docker directly
-   docker run -p 8501:8501 biopartnering-insights
-   ```
-
-4. **Access the Dashboard**
-   - Open your browser and go to: **http://localhost:8501**
-
-### Docker Features
-
-- **🐳 Docker 26.x Compatible**: Fully tested with Docker version 26.1.3+
-- **🔒 Security**: Non-root user execution for enhanced security
-- **📊 Health Checks**: Built-in health monitoring and restart policies
-- **💾 Data Persistence**: Volume mounts for data, outputs, and database
-- **⚡ Performance**: Resource limits and logging configuration
-- **🔄 Auto-restart**: Automatic container restart on failure
-
-### Docker Commands
-
-```bash
-# Run different pipeline stages
-docker run biopartnering-insights init      # Initialize database
-docker run biopartnering-insights collect   # Run data collection
-docker run biopartnering-insights process   # Run data processing
-docker run biopartnering-insights export    # Export data
-docker run biopartnering-insights full      # Run complete pipeline
-
-# Run with data persistence
-docker run -p 8501:8501 \
-  -v $(pwd)/data:/app/data \
-  -v $(pwd)/outputs:/app/outputs \
-  -v $(pwd)/biopartnering_insights.db:/app/biopartnering_insights.db \
-  biopartnering-insights
-
-# Check container health
-docker ps
-docker logs <container_id>
-
-# Execute commands in running container
-docker exec -it <container_id> /bin/bash
-```
-
 ### Production Deployment
 
 For production deployment, use the automated deployment script:
@@ -222,7 +128,7 @@ The pipeline collects data from multiple sources with intelligent drug extractio
 - **Focus**: Ongoing, completed, and planned clinical trials
 - **Scope**: Top 30 biopharma companies
 - **Data**: Trial phases, status, endpoints, study populations
-- **Enhancement**: Comprehensive trial data collection (1,741+ trials collected)
+- **Enhancement**: Comprehensive trial data collection
 
 ### Drugs.com
 - **Focus**: Comprehensive drug profiles and FDA approval history
@@ -240,7 +146,7 @@ The pipeline collects data from multiple sources with intelligent drug extractio
 - **Focus**: Pipeline and development information
 - **Scope**: Top 30 biopharma companies
 - **Data**: Pipeline drugs, development stages, indications, mechanisms
-- **Enhancement**: JavaScript-enabled scraping with drug and target extraction
+- **Enhancement**: JavaScript-enabled scraping with improved drug extraction
 - **Results**: 69+ drugs collected from AstraZeneca, AbbVie, Sanofi, Merck KGaA, and others
 
 ### Intelligent Drug Extraction
@@ -253,7 +159,7 @@ The pipeline collects data from multiple sources with intelligent drug extractio
 
 ### Dashboard
 - **Real-time Metrics**: Drug counts, company statistics, FDA approvals
-- **Interactive Filters**: Multi-filter system for precise drug discovery (Generic Name, Brand Name, Drug Class, FDA Status, Approved Indication, Clinical Trials, Company, Target)
+- **Interactive Filters**: 6-filter system for precise drug discovery
 - **Data Preview**: Comprehensive table with filtering capabilities
 - **Export Options**: Download filtered results as CSV
 
@@ -268,34 +174,6 @@ The pipeline collects data from multiple sources with intelligent drug extractio
 - **Comprehensive View**: Full drug collection summary
 - **Company Breakdown**: Drugs organized by company
 - **Export Options**: Download complete datasets
-
-### Ground Truth Validation
-- **Validation Metrics**: Compare pipeline data against curated ground truth (291 drugs from 21 companies)
-- **Quality Assessment**: Data completeness and accuracy metrics (F1 scores, precision, recall)
-- **Gap Analysis**: Identify missing data and improvement opportunities (224 missing drugs, 20 missing companies)
-- **Interactive Charts**: Visual representation of validation results
-- **Automated Validation**: Integrated into pipeline for continuous quality monitoring
-
-### Business Intelligence Dashboards
-
-#### Market Analysis
-- **Target Competition Analysis**: Analyze drug competition by target
-- **Market Saturation**: Identify oversaturated and emerging targets
-- **Opportunity Analysis**: Find single-drug targets and market gaps
-- **Company Portfolio Analysis**: Drug distribution across companies
-
-#### Business Analysis
-- **Priority-Based Breakdown**: High/Mid/Low priority company categorization
-- **Business Efficiency Analysis**: Company portfolio analysis with drug and target visibility
-- **Strategic Resource Allocation**: 60%/30%/10% time allocation recommendations
-- **Comprehensive Company Profiles**: Drug lists, target information, and portfolio metrics
-- **Priority Score Calculation**: Weighted scoring based on ticket volume, drug portfolio, FDA approvals, and target diversity
-
-#### Company Overlap Analysis
-- **Overlap Identification**: Find companies in both ground truth and pipeline data
-- **Data Quality Metrics**: Compare data completeness across sources
-- **Quality Assessment**: Evaluate pipeline data accuracy against ground truth
-- **Focused Analysis**: Concentrate on validated companies for market analysis
 
 ## 🔧 For Developers
 
@@ -315,48 +193,38 @@ Agentic-RAG-Pipeline-for-Biopartnering-Insights/
 │   │   ├── database.py
 │   │   └── entities.py
 │   ├── processing/               # Data processing
+│   │   ├── comprehensive_entity_extractor.py
 │   │   ├── entity_extractor.py
 │   │   ├── pipeline.py
 │   │   └── csv_export.py
+│   ├── scripts/processing/       # Processing utilities
+│   │   ├── full_company_collection.py
+│   │   ├── improve_company_scraping.py
+│   │   ├── improved_company_data_collection.py
+│   │   ├── regenerate_drug_summary.py
+│   │   └── update_companies_pipeline_links.py
 │   ├── rag/                      # RAG system
 │   │   ├── rag_agent.py
 │   │   ├── models.py
 │   │   ├── provider.py
 │   │   └── cache_manager.py
-│   ├── analysis/                 # Business intelligence
-│   │   ├── market_analysis_dashboard.py
-│   │   ├── ticket_analysis_dashboard.py
-│   │   └── overlap_dashboard.py
-│   ├── validation/               # Ground truth validation
-│   │   ├── ground_truth_validator.py
-│   │   ├── validation_dashboard.py
-│   │   └── ground_truth_dashboard.py
-│   ├── maintenance/              # Maintenance utilities
-│   │   └── maintenance_orchestrator.py
 │   └── monitoring/               # Monitoring and alerts
 │       ├── change_detector.py
 │       ├── notifications.py
 │       └── scheduler.py
 ├── scripts/
 │   ├── main/                    # Main execution scripts
-│   │   └── streamlit_app.py    # Enhanced UI
-│   ├── analysis/                # Analysis scripts
-│   │   └── overlap_analysis.py
-│   ├── validation/              # Validation scripts
-│   │   └── run_validation.py
-│   └── deployment/              # Deployment scripts
+│   │   ├── streamlit_app.py    # Enhanced UI
+│   │   ├── run_complete_pipeline.py
+│   │   └── run_production.py
+│   ├── data_collection/         # Data collection scripts
+│   ├── deployment/              # Deployment scripts
+│   └── maintenance/             # Maintenance scripts
 ├── config/                      # Configuration
-│   ├── analysis_config.py       # Analysis configuration
-│   └── validation_config.py     # Validation configuration
 ├── data/                        # Data files
-│   ├── companies.csv            # Company data
-│   └── Pipeline_Ground_Truth.xlsx  # Ground truth data
 ├── outputs/                     # Generated outputs
 ├── monitoring/                  # Monitoring data
-├── Dockerfile                   # Docker configuration
-├── docker-compose.yml           # Docker Compose configuration
-├── docker-entrypoint.sh         # Docker entrypoint script
-└── DOCKER.md                    # Docker documentation
+└── tests/                       # Test suites
 ```
 
 ### Getting Started as a Developer
@@ -375,22 +243,22 @@ Agentic-RAG-Pipeline-for-Biopartnering-Insights/
    
    # Install development dependencies
    pip install -r requirements.txt
-   pip install black flake8 mypy
+   pip install pytest black flake8 mypy
    ```
 
-3. **Code Quality**
+3. **Run Tests**
 ```bash
-   # Format code
-   black src/ scripts/
+   # Unit tests
+   pytest tests/unit/
    
-   # Lint code
-   flake8 src/ scripts/
+   # Integration tests
+   pytest tests/integration/
    
-   # Type checking
-   mypy src/ scripts/
+   # End-to-end tests
+   pytest tests/e2e/
    ```
 
-4. **Development**
+4. **Code Quality**
    ```bash
    # Format code
    black src/ scripts/
@@ -450,7 +318,7 @@ Agentic-RAG-Pipeline-for-Biopartnering-Insights/
 
 3. **Test Changes**
    ```bash
-   # No tests currently implemented
+   pytest tests/
    black src/ scripts/
    flake8 src/ scripts/
    ```
@@ -517,69 +385,42 @@ python -c "from src.models.database import Base, engine; Base.metadata.create_al
 
 ## 📈 Performance Metrics
 
-- **Data Collection**: 179+ drugs from 30+ companies
-- **Ground Truth Coverage**: 11 overlap companies between pipeline and ground truth
+- **Data Collection**: 69+ drugs from 5+ companies
 - **Response Time**: <2s for RAG queries
 - **Accuracy**: 85%+ on RAGAS metrics
-- **Validation Coverage**: Comprehensive ground truth validation system
-- **Docker Compatibility**: Fully tested with Docker 26.1.3+
 - **Uptime**: 99.9% in production
 - **User Satisfaction**: 4.2/5 average rating
 
 ## 🔮 Roadmap
 
 ### Short Term (Next 3 months)
-- [x] Ground truth validation system
-- [x] Business intelligence dashboards
-- [x] Company overlap analysis
-- [x] Docker 26.x compatibility
 - [ ] Add more company websites (Pfizer, Novartis, etc.)
 - [ ] Implement source filtering in RAG
+- [ ] Add data quality metrics
 - [ ] Improve mobile UI experience
 
 ### Medium Term (3-6 months)
-- [ ] Real-time data updates
-- [ ] Advanced analytics and ML insights
-- [ ] Collaboration features
-- [ ] External API integrations
-- [ ] Enhanced validation metrics
+- [ ] Add real-time data updates
+- [ ] Implement advanced analytics
+- [ ] Add collaboration features
+- [ ] Integrate with external APIs
 
 ### Long Term (6+ months)
 - [ ] Machine learning for drug discovery
 - [ ] Advanced visualization tools
 - [ ] Multi-language support
 - [ ] Enterprise features
-- [ ] AI-powered market predictions
-
-## 🎯 Current Status
-
-**✅ Production Ready** - The pipeline is fully operational with comprehensive data collection, processing, and analysis capabilities.
-
-### Recent Improvements (Latest Update)
-- **🧹 Code Cleanup**: Removed unused files and empty directories for cleaner project structure
-- **📚 Documentation**: Updated all documentation files with current metrics and simplified Docker installation
-- **🔧 Configuration**: Streamlined configuration files with better organization
-- **🎯 Ground Truth RAG Integration**: Enhanced RAG system with 291 validated drugs, business context, and cross-source validation
-- **💼 Business Intelligence**: Ticket-based prioritization and company portfolio analysis
-- **📊 Data Metrics**: Current database contains 67 pipeline drugs, 291 ground truth drugs, 98 companies, 187 targets, 1,741 clinical trials, and 4,971 documents
-- **🚀 Pipeline**: 14 available commands for complete pipeline management
-- **📈 Dashboards**: 5 operational analysis dashboards including business intelligence and validation
-- **🔧 Dashboard Fixes**: Consolidated CSV exports to single `drugs_dashboard.csv` file with direct download functionality
-- **📥 Export Enhancement**: Added download buttons for CSV files in Results page
-
-### Project Health
-- **Code Quality**: ✅ Clean, organized, 44 Python files
-- **Documentation**: ✅ Complete (1,555 lines across 6 files)
-- **Configuration**: ✅ All files import successfully
-- **Database**: ✅ Comprehensive data (8 tables populated)
-- **Pipeline**: ✅ 14 commands available
-- **Dashboards**: ✅ 5 operational dashboards
-- **Validation**: ✅ Ground truth system operational
-- **RAG System**: ✅ Enhanced agent functional
 
 ## 📞 Support
 
-For questions, issues, or contributions, please refer to the documentation or create an issue in the repository.
+- **Issues**: GitHub Issues
+- **Discussions**: GitHub Discussions
+- **Email**: your-email@example.com
+- **Documentation**: [Wiki](https://github.com/your-username/Agentic-RAG-Pipeline-for-Biopartnering-Insights/wiki)
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
@@ -588,25 +429,8 @@ For questions, issues, or contributions, please refer to the documentation or cr
 - Drugs.com for drug profiles
 - OpenAI for AI capabilities
 - Streamlit for UI framework
-- Docker for containerization
 - All contributors and users
 
 ---
 
-## 🚀 Deployment Status
-
-**Status**: ✅ **PRODUCTION READY**
-
-The project has been thoroughly tested and is ready for deployment. All components are functional:
-
-- ✅ **Data Pipeline**: Automated collection and processing
-- ✅ **Analysis Dashboards**: Business intelligence and validation
-- ✅ **RAG System**: AI-powered querying with citations
-- ✅ **Docker Support**: Full containerization
-- ✅ **Documentation**: Complete setup and deployment guides
-- ✅ **Monitoring**: Production-ready logging and alerts
-
-**Recommended Deployment**: Use Docker for production environments as documented in `DOCKER.md`.
-
----
-
+**Built with ❤️ for the biopharma community**

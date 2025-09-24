@@ -64,7 +64,7 @@ class OllamaProvider(BaseLLMProvider):
             url = f"{self.oai_url}/chat/completions"
             headers = {"Authorization": "Bearer ollama"}
             payload = {"model": model, "messages": messages, "temperature": temperature}
-            r = requests.post(url, headers=headers, json=payload, timeout=120)
+            r = requests.post(url, headers=headers, json=payload, timeout=300)
             if r.status_code == 200:
                 data = r.json()
                 content = data["choices"][0]["message"]["content"]
@@ -85,7 +85,7 @@ class OllamaProvider(BaseLLMProvider):
             url = f"{self.base_url}/api/generate"
             prompt = "\n\n".join([m["content"] for m in messages if m["role"] in {"system", "user"}])
             payload = {"model": mdl, "prompt": prompt, "stream": False, "options": {"temperature": temperature}}
-            r = requests.post(url, json=payload, timeout=60)
+            r = requests.post(url, json=payload, timeout=300)
             r.raise_for_status()
             data = r.json()
             return LLMResponse(content=data.get("response", ""), raw=data)
@@ -99,7 +99,7 @@ class OllamaProvider(BaseLLMProvider):
             url = f"{self.oai_url}/embeddings"
             headers = {"Authorization": "Bearer ollama"}
             payload = {"model": mdl, "input": texts}
-            r = requests.post(url, headers=headers, json=payload, timeout=120)
+            r = requests.post(url, headers=headers, json=payload, timeout=300)
             if r.status_code == 200:
                 data = r.json()
                 return [d["embedding"] for d in data["data"]]
@@ -110,7 +110,7 @@ class OllamaProvider(BaseLLMProvider):
         for t in texts:
             url = f"{self.base_url}/api/embeddings"
             payload = {"model": mdl, "prompt": t}
-            r = requests.post(url, json=payload, timeout=60)
+            r = requests.post(url, json=payload, timeout=300)
             r.raise_for_status()
             data = r.json()
             vectors.append(data.get("embedding", []))

@@ -27,17 +27,6 @@ help:
 	@echo "  clean          Clean temporary files"
 	@echo "  logs           View recent logs"
 	@echo ""
-	@echo "Docker:"
-	@echo "  docker-build   Build Docker image"
-	@echo "  docker-run     Run Docker container"
-	@echo "  docker-compose-up   Start with Docker Compose"
-	@echo "  docker-compose-down  Stop Docker Compose"
-	@echo "  docker-logs    View Docker logs"
-	@echo ""
-	@echo "Analysis:"
-	@echo "  validate       Run ground truth validation"
-	@echo "  overlap-analysis  Run company overlap analysis"
-	@echo ""
 
 # Setup
 setup: install
@@ -85,6 +74,9 @@ export:
 	python run_pipeline.py export
 
 # Development
+test:
+	@echo "Running tests..."
+	python -m pytest tests/ -v
 
 clean:
 	@echo "Cleaning temporary files..."
@@ -96,36 +88,6 @@ clean:
 logs:
 	@echo "Recent pipeline logs:"
 	@tail -n 50 monitoring/logs/*.log 2>/dev/null || echo "No logs found"
-
-# Docker commands
-docker-build:
-	@echo "Building Docker image..."
-	docker build -t biopartnering-insights .
-
-docker-run:
-	@echo "Running Docker container..."
-	docker run -p 8501:8501 biopartnering-insights
-
-docker-compose-up:
-	@echo "Starting with Docker Compose..."
-	docker-compose up --build
-
-docker-compose-down:
-	@echo "Stopping Docker Compose..."
-	docker-compose down
-
-docker-logs:
-	@echo "Viewing Docker logs..."
-	docker-compose logs -f
-
-# Validation and analysis
-validate:
-	@echo "Running ground truth validation..."
-	python scripts/validation/run_validation.py
-
-overlap-analysis:
-	@echo "Running company overlap analysis..."
-	python scripts/analysis/overlap_analysis.py
 
 # Database operations
 db-reset:
