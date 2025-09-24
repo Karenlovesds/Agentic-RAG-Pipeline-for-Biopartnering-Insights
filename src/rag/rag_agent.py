@@ -6,11 +6,18 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from sqlalchemy.orm import Session
 from loguru import logger
+from difflib import get_close_matches
 
 from src.models.entities import Document, Drug, Company, ClinicalTrial
 from src.rag.provider import BaseLLMProvider
 from src.rag.cache_manager import RAGCacheManager
 from src.rag.ground_truth_loader import ground_truth_loader
+
+
+def _fuzzy_match_term(query: str, terms: List[str], cutoff: float = 0.6) -> Optional[str]:
+    """Find the best fuzzy match for a query term."""
+    matches = get_close_matches(query.lower(), [term.lower() for term in terms], n=1, cutoff=cutoff)
+    return matches[0] if matches else None
 
 
 @dataclass
@@ -23,13 +30,36 @@ class RetrievedDoc:
 
 
 def _simple_retrieve(db: Session, query: str, limit: int = 5) -> List[RetrievedDoc]:
-    """Retrieve relevant documents from the database with improved ranking."""
+    """Retrieve relevant documents from the database with improved ranking and typo tolerance."""
     query_lower = query.lower()
     
-    # Get all matching documents
-    all_docs = db.query(Document).filter(Document.content.ilike(f'%{query_lower}%')).all()
+    # Common typo corrections for biopharma terms
+    typo_corrections = {
+        'atezolizumab': ['atezolizimab', 'atezolizumad'],
+        'pembrolizumab': ['pembrolizimab', 'pembrolizumad'],
+        'nivolumab': ['nivolimab', 'nivolumad'],
+        'trastuzumab': ['trastuzimab', 'trastuzumad'],
+        'rituximab': ['rituximab', 'rituxumad'],
+        'merck': ['merk'],
+        'bristol': ['bristal'],
+        'roche': ['roch'],
+        'pfizer': ['pfiser'],
+        'novartis': ['novartis']
+    }
     
-    # If no exact matches, try broader search with individual words
+    # Try original query first
+    search_query = query_lower
+    all_docs = db.query(Document).filter(Document.content.ilike(f'%{search_query}%')).all()
+    
+    # If no exact matches, try typo corrections
+    if not all_docs:
+        for correct_term, typos in typo_corrections.items():
+            if any(typo in query_lower for typo in typos):
+                search_query = correct_term
+                all_docs = db.query(Document).filter(Document.content.ilike(f'%{search_query}%')).all()
+                break
+    
+    # If still no matches, try broader search with individual words
     if not all_docs:
         words = query_lower.split()
         for word in words:
@@ -93,38 +123,92 @@ def _simple_retrieve(db: Session, query: str, limit: int = 5) -> List[RetrievedD
 
 
 def _search_drugs(db: Session, query: str, limit: int = 5) -> List[Dict[str, Any]]:
-    """Search for drugs in the database."""
+    """Search for drugs in the database with typo tolerance."""
     query_lower = query.lower()
     drugs = []
+    
+    # Common typo corrections for company names
+    company_typos = {
+        'merck': ['merk', 'merck & co', 'merck&co', 'merck co'],
+        'bristol': ['bristal', 'bristol', 'bristol myers', 'bms'],
+        'roche': ['roch', 'genentech', 'roche/genentech'],
+        'pfizer': ['pfiser', 'pfizer inc', 'pfizer labs'],
+        'novartis': ['novartis ag', 'novartis pharma']
+    }
     
     # Search by generic name, brand name, or company
     drug_query = db.query(Drug).join(Company)
     
-    # Add search filters
-    if any(company in query_lower for company in ['merck', 'bristol', 'roche', 'pfizer', 'novartis']):
-        if 'merck' in query_lower:
-            drug_query = drug_query.filter(Company.name.ilike('%Merck%'))
-        elif 'bristol' in query_lower or 'bms' in query_lower:
-            drug_query = drug_query.filter(Company.name.ilike('%Bristol%'))
-        elif 'roche' in query_lower:
-            drug_query = drug_query.filter(Company.name.ilike('%Roche%'))
-        elif 'pfizer' in query_lower:
-            drug_query = drug_query.filter(Company.name.ilike('%Pfizer%'))
-        elif 'novartis' in query_lower:
-            drug_query = drug_query.filter(Company.name.ilike('%Novartis%'))
-    else:
-        # Search by drug name, mechanism, or drug class
+    # Add search filters with typo tolerance (case-insensitive)
+    company_found = False
+    for company, typos in company_typos.items():
+        if company in query_lower or any(typo in query_lower for typo in typos):
+            company_found = True
+            if company == 'merck':
+                drug_query = drug_query.filter(Company.name.ilike('%merck%'))
+            elif company == 'bristol':
+                drug_query = drug_query.filter(Company.name.ilike('%bristol%'))
+            elif company == 'roche':
+                drug_query = drug_query.filter(Company.name.ilike('%roche%'))
+            elif company == 'pfizer':
+                drug_query = drug_query.filter(Company.name.ilike('%pfizer%'))
+            elif company == 'novartis':
+                drug_query = drug_query.filter(Company.name.ilike('%novartis%'))
+            break
+    
+    if not company_found:
+        # Search by drug name, mechanism, or drug class with typo tolerance
+        # Common drug name typos
+        drug_typos = {
+            'atezolizumab': ['atezolizimab', 'atezolizumad', 'tecentriq'],
+            'pembrolizumab': ['pembrolizimab', 'pembrolizumad', 'keytruda'],
+            'nivolumab': ['nivolimab', 'nivolumad', 'opdivo'],
+            'trastuzumab': ['trastuzimab', 'trastuzumad', 'herceptin'],
+            'rituximab': ['rituximab', 'rituxumad', 'rituxan']
+        }
+        
+        # Try exact match first
         drug_query = drug_query.filter(
             (Drug.generic_name.ilike(f'%{query}%')) |
             (Drug.brand_name.ilike(f'%{query}%')) |
             (Drug.mechanism_of_action.ilike(f'%{query}%')) |
             (Drug.drug_class.ilike(f'%{query}%'))
         )
+        
+        # If no results, try typo corrections
+        if not drug_query.limit(1).all():
+            for correct_name, typos in drug_typos.items():
+                if any(typo in query_lower for typo in typos):
+                    drug_query = db.query(Drug).join(Company).filter(
+                        (Drug.generic_name.ilike(f'%{correct_name}%')) |
+                        (Drug.brand_name.ilike(f'%{correct_name}%'))
+                    )
+                    break
     
     # Get results
     drug_results = drug_query.limit(limit).all()
     
-    # If no specific matches found, return some general drugs for context
+    # If no specific matches found, try fuzzy matching
+    if not drug_results:
+        # Get all drug names for fuzzy matching
+        all_drugs = db.query(Drug).join(Company).all()
+        drug_names = [drug.generic_name.lower() for drug in all_drugs if drug.generic_name]
+        drug_names.extend([drug.brand_name.lower() for drug in all_drugs if drug.brand_name])
+        
+        # Try fuzzy matching on individual words
+        words = query_lower.split()
+        for word in words:
+            if len(word) > 4:  # Only fuzzy match words longer than 4 characters
+                fuzzy_match = _fuzzy_match_term(word, drug_names, cutoff=0.7)
+                if fuzzy_match:
+                    drug_query = db.query(Drug).join(Company).filter(
+                        (Drug.generic_name.ilike(f'%{fuzzy_match}%')) |
+                        (Drug.brand_name.ilike(f'%{fuzzy_match}%'))
+                    )
+                    drug_results = drug_query.limit(limit).all()
+                    break
+    
+    # If still no specific matches found, return some general drugs for context
     if not drug_results and any(keyword in query_lower for keyword in ['drug', 'mechanism', 'action', 'target', 'therapy', 'treatment']):
         drug_results = db.query(Drug).join(Company).limit(limit).all()
     
