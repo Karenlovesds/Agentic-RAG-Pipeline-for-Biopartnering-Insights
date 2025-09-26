@@ -4,6 +4,7 @@ import json
 import requests
 import asyncio
 from typing import List, Dict, Any, Optional
+from datetime import datetime
 from loguru import logger
 from .base_collector import BaseCollector, CollectedData
 from config.config import settings
@@ -158,18 +159,16 @@ class FDACollector(BaseCollector):
         collected_data = []
         
         try:
-            # FDA Clinical Trials API (if available) or use ClinicalTrials.gov
-            # For now, we'll use a placeholder approach
+            # Enhanced FDA clinical trials data collection
             logger.info("Collecting FDA clinical trials data...")
             
-            # This would typically involve FDA's clinical trials database
-            # For demonstration, we'll create placeholder data
-            trial_data = self._create_fda_trials_placeholder()
+            # Use ClinicalTrials.gov API for comprehensive trial data
+            trial_data = self._collect_clinical_trials_data()
             if trial_data:
                 collected_data.append(CollectedData(
                     content=trial_data,
                     title="FDA Clinical Trials Data",
-                    source_url="https://www.fda.gov/drugs/development-approval-process/clinical-trials",
+                    source_url="https://clinicaltrials.gov/api/v2/studies",
                     source_type="fda_clinical_trials"
                 ))
             
@@ -179,6 +178,60 @@ class FDACollector(BaseCollector):
             logger.error(f"Error collecting FDA clinical trials: {e}")
         
         return collected_data
+    
+    def _collect_clinical_trials_data(self) -> str:
+        """Collect clinical trials data from ClinicalTrials.gov API."""
+        try:
+            import requests
+            
+            # Search for biopharmaceutical trials
+            url = "https://clinicaltrials.gov/api/v2/studies"
+            params = {
+                'query.term': 'biopharmaceutical OR monoclonal antibody OR kinase inhibitor',
+                'query.locn': 'United States',
+                'query.phase': 'PHASE2 OR PHASE3',
+                'query.status': 'RECRUITING OR ACTIVE_NOT_RECRUITING',
+                'pageSize': 50
+            }
+            
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+            
+            data = response.json()
+            studies = data.get('studies', [])
+            
+            if not studies:
+                return "No active biopharmaceutical clinical trials found in current search."
+            
+            content_parts = [
+                "FDA Clinical Trials Data",
+                f"Source: ClinicalTrials.gov API",
+                f"Collection Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                f"Total Studies Found: {len(studies)}",
+                ""
+            ]
+            
+            for i, study in enumerate(studies[:10], 1):  # Limit to first 10 studies
+                protocol_section = study.get('protocolSection', {})
+                identification_module = protocol_section.get('identificationModule', {})
+                status_module = protocol_section.get('statusModule', {})
+                
+                nct_id = identification_module.get('nctId', 'N/A')
+                title = identification_module.get('briefTitle', 'N/A')
+                status = status_module.get('overallStatus', 'N/A')
+                
+                content_parts.extend([
+                    f"{i}. Study: {title}",
+                    f"   NCT ID: {nct_id}",
+                    f"   Status: {status}",
+                    ""
+                ])
+            
+            return "\n".join(content_parts)
+            
+        except Exception as e:
+            logger.error(f"Error collecting clinical trials data: {e}")
+            return f"Error collecting clinical trials data: {str(e)}"
     
     async def _collect_regulatory_actions(self) -> List[CollectedData]:
         """Collect FDA regulatory actions and enforcement data."""

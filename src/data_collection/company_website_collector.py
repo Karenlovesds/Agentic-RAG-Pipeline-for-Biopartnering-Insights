@@ -5,6 +5,7 @@ import re
 from typing import List, Dict, Any, Optional
 from loguru import logger
 from crawl4ai import AsyncWebCrawler
+from bs4 import BeautifulSoup
 from .base_collector import BaseCollector, CollectedData
 from config.config import get_target_companies
 
@@ -708,15 +709,42 @@ class CompanyWebsiteCollector(BaseCollector):
         if relevant_paragraphs:
             content.extend(relevant_paragraphs[:8])
         else:
-            content.extend([
-                "Pipeline data extraction placeholder.",
-                "In a full implementation, this would contain:",
-                "- Drug names and development stages",
-                "- Therapeutic areas and indications",
-                "- Clinical trial phases and status",
-                "- Regulatory milestones and timelines",
-                "- Partnership and collaboration information"
-            ])
+            # Enhanced extraction with more specific patterns
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            # Look for specific pipeline-related content
+            pipeline_sections = soup.find_all(['div', 'section', 'article'], 
+                string=re.compile(r'pipeline|development|program|portfolio|therapeutic', re.I))
+            
+            for section in pipeline_sections:
+                if section.get_text().strip():
+                    text = section.get_text().strip()
+                    if len(text) > 50 and any(keyword in text.lower() for keyword in keywords):
+                        content.append(f"Pipeline Section: {text[:500]}...")
+            
+            # Look for drug names in various formats
+            drug_patterns = [
+                r'\b[A-Z][a-z]+mab\b',  # Monoclonal antibodies
+                r'\b[A-Z][a-z]+nib\b',  # Kinase inhibitors
+                r'\b[A-Z][a-z]+zumab\b',  # Humanized antibodies
+                r'\b[A-Z][a-z]+tinib\b',  # Tyrosine kinase inhibitors
+                r'\b[A-Z][a-z]+ciclib\b',  # CDK inhibitors
+            ]
+            
+            for pattern in drug_patterns:
+                matches = re.findall(pattern, html_content)
+                if matches:
+                    unique_drugs = list(set(matches))
+                    content.append(f"Identified drug candidates: {', '.join(unique_drugs[:5])}")
+            
+            if len(content) <= 3:  # Still no meaningful content
+                content.extend([
+                    "Pipeline information not found in accessible content.",
+                    "This may indicate:",
+                    "- Pipeline data is behind authentication",
+                    "- Content is loaded dynamically via JavaScript",
+                    "- Information is in PDF documents or other formats"
+                ])
         
         return content
     
@@ -750,16 +778,45 @@ class CompanyWebsiteCollector(BaseCollector):
         if relevant_paragraphs:
             content.extend(relevant_paragraphs[:8])
         else:
-            content.extend([
-                "Clinical trials data extraction placeholder.",
-                "In a full implementation, this would contain:",
-                "- NCT numbers and trial identifiers",
-                "- Study phases and designs",
-                "- Patient enrollment information",
-                "- Primary and secondary endpoints",
-                "- Safety and efficacy results",
-                "- Regulatory submissions and approvals"
-            ])
+            # Enhanced clinical trials extraction
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            # Look for NCT numbers
+            nct_pattern = r'NCT\d{8}'
+            nct_matches = re.findall(nct_pattern, html_content)
+            if nct_matches:
+                unique_ncts = list(set(nct_matches))
+                content.append(f"Clinical Trial Identifiers: {', '.join(unique_ncts[:5])}")
+            
+            # Look for phase information
+            phase_patterns = [
+                r'phase\s+[I1-3]', r'phase\s+II', r'phase\s+III', r'phase\s+IV',
+                r'pivotal\s+study', r'registration\s+trial', r'confirmatory\s+trial'
+            ]
+            
+            for pattern in phase_patterns:
+                matches = re.findall(pattern, html_content, re.I)
+                if matches:
+                    content.append(f"Study Phases Found: {', '.join(set(matches))}")
+            
+            # Look for trial-related sections
+            trial_sections = soup.find_all(['div', 'section'], 
+                string=re.compile(r'clinical\s+trial|study|enrollment|endpoint', re.I))
+            
+            for section in trial_sections:
+                if section.get_text().strip():
+                    text = section.get_text().strip()
+                    if len(text) > 100:
+                        content.append(f"Trial Information: {text[:400]}...")
+            
+            if len(content) <= 3:  # Still no meaningful content
+                content.extend([
+                    "Clinical trial information not found in accessible content.",
+                    "This may indicate:",
+                    "- Trial data is in separate databases",
+                    "- Information requires registration/login",
+                    "- Data is presented in interactive formats"
+                ])
         
         return content
     
@@ -792,16 +849,63 @@ class CompanyWebsiteCollector(BaseCollector):
         if relevant_paragraphs:
             content.extend(relevant_paragraphs[:8])
         else:
-            content.extend([
-                "Products data extraction placeholder.",
-                "In a full implementation, this would contain:",
-                "- Product names and brand names",
-                "- Approved indications and uses",
-                "- Mechanism of action descriptions",
-                "- Dosing and administration guidelines",
-                "- Safety and efficacy profiles",
-                "- Commercial and market information"
-            ])
+            # Enhanced products extraction
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            # Look for product names and brand names
+            product_patterns = [
+                r'\b[A-Z][a-z]+mab\b',  # Monoclonal antibodies
+                r'\b[A-Z][a-z]+nib\b',  # Kinase inhibitors
+                r'\b[A-Z][a-z]+zumab\b',  # Humanized antibodies
+                r'\b[A-Z][a-z]+tinib\b',  # Tyrosine kinase inhibitors
+                r'\b[A-Z][a-z]+ciclib\b',  # CDK inhibitors
+                r'\b[A-Z][a-z]+parib\b',  # PARP inhibitors
+            ]
+            
+            found_products = []
+            for pattern in product_patterns:
+                matches = re.findall(pattern, html_content)
+                found_products.extend(matches)
+            
+            if found_products:
+                unique_products = list(set(found_products))
+                content.append(f"Product Names Found: {', '.join(unique_products[:8])}")
+            
+            # Look for indication information
+            indication_patterns = [
+                r'indication[s]?\s*:?\s*([^.]+)',
+                r'treat[s]?\s+([^.]+)',
+                r'indicated\s+for\s+([^.]+)',
+                r'approved\s+for\s+([^.]+)'
+            ]
+            
+            for pattern in indication_patterns:
+                matches = re.findall(pattern, html_content, re.I)
+                if matches:
+                    content.append(f"Indications: {', '.join(matches[:3])}")
+            
+            # Look for mechanism of action
+            moa_patterns = [
+                r'mechanism\s+of\s+action[s]?\s*:?\s*([^.]+)',
+                r'works\s+by\s+([^.]+)',
+                r'targets?\s+([^.]+)',
+                r'inhibits?\s+([^.]+)'
+            ]
+            
+            for pattern in moa_patterns:
+                matches = re.findall(pattern, html_content, re.I)
+                if matches:
+                    content.append(f"Mechanism of Action: {matches[0][:200]}...")
+                    break
+            
+            if len(content) <= 3:  # Still no meaningful content
+                content.extend([
+                    "Product information not found in accessible content.",
+                    "This may indicate:",
+                    "- Product data is in separate sections",
+                    "- Information requires specific navigation",
+                    "- Data is presented in structured formats"
+                ])
         
         return content
     
@@ -835,16 +939,59 @@ class CompanyWebsiteCollector(BaseCollector):
         if relevant_paragraphs:
             content.extend(relevant_paragraphs[:8])
         else:
-            content.extend([
-                "Oncology data extraction placeholder.",
-                "In a full implementation, this would contain:",
-                "- Cancer types and tumor indications",
-                "- Biomarker and genetic information",
-                "- Immunotherapy and targeted therapy approaches",
-                "- Clinical trial results in oncology",
-                "- Regulatory approvals for cancer treatments",
-                "- Partnership and collaboration in oncology"
-            ])
+            # Enhanced oncology extraction
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            # Look for cancer types and tumor indications
+            cancer_types = [
+                'breast cancer', 'lung cancer', 'prostate cancer', 'colorectal cancer',
+                'melanoma', 'lymphoma', 'leukemia', 'ovarian cancer', 'pancreatic cancer',
+                'hepatocellular carcinoma', 'renal cell carcinoma', 'bladder cancer'
+            ]
+            
+            found_cancers = []
+            for cancer in cancer_types:
+                if cancer in html_content.lower():
+                    found_cancers.append(cancer)
+            
+            if found_cancers:
+                content.append(f"Cancer Types Mentioned: {', '.join(found_cancers[:5])}")
+            
+            # Look for biomarker information
+            biomarker_patterns = [
+                r'biomarker[s]?\s*:?\s*([^.]+)',
+                r'expression\s+of\s+([^.]+)',
+                r'mutation[s]?\s+in\s+([^.]+)',
+                r'overexpression\s+of\s+([^.]+)'
+            ]
+            
+            for pattern in biomarker_patterns:
+                matches = re.findall(pattern, html_content, re.I)
+                if matches:
+                    content.append(f"Biomarkers: {', '.join(matches[:3])}")
+            
+            # Look for immunotherapy and targeted therapy mentions
+            therapy_types = [
+                'immunotherapy', 'targeted therapy', 'CAR-T', 'checkpoint inhibitor',
+                'monoclonal antibody', 'kinase inhibitor', 'PARP inhibitor'
+            ]
+            
+            found_therapies = []
+            for therapy in therapy_types:
+                if therapy in html_content.lower():
+                    found_therapies.append(therapy)
+            
+            if found_therapies:
+                content.append(f"Therapy Approaches: {', '.join(found_therapies[:4])}")
+            
+            if len(content) <= 3:  # Still no meaningful content
+                content.extend([
+                    "Oncology information not found in accessible content.",
+                    "This may indicate:",
+                    "- Oncology data is in specialized sections",
+                    "- Information requires medical expertise to interpret",
+                    "- Data is presented in clinical formats"
+                ])
         
         return content
     
@@ -869,15 +1016,53 @@ class CompanyWebsiteCollector(BaseCollector):
         if relevant_paragraphs:
             content.extend(relevant_paragraphs[:6])
         else:
-            content.extend([
-                "General company data extraction placeholder.",
-                "In a full implementation, this would contain:",
-                "- Company overview and mission",
-                "- Strategic focus areas and priorities",
-                "- Research and development capabilities",
-                "- Corporate partnerships and collaborations",
-                "- Financial and business information"
-            ])
+            # Enhanced general content extraction
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            # Look for company overview sections
+            overview_sections = soup.find_all(['div', 'section'], 
+                string=re.compile(r'about\s+us|company\s+overview|mission|vision', re.I))
+            
+            for section in overview_sections:
+                if section.get_text().strip():
+                    text = section.get_text().strip()
+                    if len(text) > 100:
+                        content.append(f"Company Overview: {text[:300]}...")
+            
+            # Look for strategic focus areas
+            focus_patterns = [
+                r'focus\s+areas?\s*:?\s*([^.]+)',
+                r'strategic\s+priorities?\s*:?\s*([^.]+)',
+                r'therapeutic\s+areas?\s*:?\s*([^.]+)'
+            ]
+            
+            for pattern in focus_patterns:
+                matches = re.findall(pattern, html_content, re.I)
+                if matches:
+                    content.append(f"Strategic Focus: {matches[0][:200]}...")
+                    break
+            
+            # Look for partnership information
+            partnership_patterns = [
+                r'partnership[s]?\s+with\s+([^.]+)',
+                r'collaboration[s]?\s+with\s+([^.]+)',
+                r'alliance[s]?\s+with\s+([^.]+)'
+            ]
+            
+            for pattern in partnership_patterns:
+                matches = re.findall(pattern, html_content, re.I)
+                if matches:
+                    content.append(f"Partnerships: {', '.join(matches[:3])}")
+                    break
+            
+            if len(content) <= 3:  # Still no meaningful content
+                content.extend([
+                    "General company information not found in accessible content.",
+                    "This may indicate:",
+                    "- Company data is in separate sections",
+                    "- Information requires specific navigation",
+                    "- Data is presented in structured formats"
+                ])
         
         return content
     

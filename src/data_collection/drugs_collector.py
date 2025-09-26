@@ -3,10 +3,12 @@
 import asyncio
 import requests
 import json
+import re
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from loguru import logger
 from crawl4ai import AsyncWebCrawler
+from bs4 import BeautifulSoup
 from .base_collector import BaseCollector, CollectedData
 from config.config import settings
 
@@ -247,19 +249,71 @@ class DrugsCollector(BaseCollector):
             f"Collection Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             "",
             "Profile Information:",
-            f"Basic drug profile information for {drug_name} from Drugs.com",
-            "This includes general information about the drug, its uses, and basic safety information.",
-            "",
-            "Note: This is a placeholder for extracted drug profile content.",
-            "In a full implementation, this would contain parsed HTML content with:",
-            "- Drug description and mechanism of action",
-            "- Approved indications",
-            "- Dosage and administration",
-            "- Side effects and adverse reactions",
-            "- Contraindications and warnings",
-            "- Drug interactions",
-            "- Storage and handling information"
+            f"Enhanced drug profile information for {drug_name} from Drugs.com",
+            "This includes comprehensive information about the drug, its uses, and safety information.",
+            ""
         ]
+        
+        # Enhanced drug profile extraction
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # Extract drug description
+        description_sections = soup.find_all(['div', 'p'], string=re.compile(r'description|overview|about', re.I))
+        if description_sections:
+            for section in description_sections:
+                text = section.get_text().strip()
+                if len(text) > 50:
+                    content_parts.append(f"Description: {text[:300]}...")
+                    break
+        
+        # Extract mechanism of action
+        moa_sections = soup.find_all(['div', 'p'], string=re.compile(r'mechanism\s+of\s+action|how\s+it\s+works', re.I))
+        if moa_sections:
+            for section in moa_sections:
+                text = section.get_text().strip()
+                if len(text) > 30:
+                    content_parts.append(f"Mechanism of Action: {text[:250]}...")
+                    break
+        
+        # Extract indications
+        indication_patterns = [
+            r'indication[s]?\s*:?\s*([^.]+)',
+            r'used\s+to\s+treat\s+([^.]+)',
+            r'approved\s+for\s+([^.]+)'
+        ]
+        
+        for pattern in indication_patterns:
+            matches = re.findall(pattern, html_content, re.I)
+            if matches:
+                content_parts.append(f"Indications: {matches[0][:200]}...")
+                break
+        
+        # Extract dosage information
+        dosage_sections = soup.find_all(['div', 'p'], string=re.compile(r'dosage|dosing|administration', re.I))
+        if dosage_sections:
+            for section in dosage_sections:
+                text = section.get_text().strip()
+                if len(text) > 30:
+                    content_parts.append(f"Dosage: {text[:200]}...")
+                    break
+        
+        # Extract side effects
+        side_effects_sections = soup.find_all(['div', 'p'], string=re.compile(r'side\s+effects?|adverse\s+reactions?', re.I))
+        if side_effects_sections:
+            for section in side_effects_sections:
+                text = section.get_text().strip()
+                if len(text) > 30:
+                    content_parts.append(f"Side Effects: {text[:200]}...")
+                    break
+        
+        if len(content_parts) <= 3:  # Still no meaningful content
+            content_parts.extend([
+                "Drug profile information not found in accessible content.",
+                "This may indicate:",
+                "- Content requires registration/login",
+                "- Information is in PDF documents",
+                "- Data is loaded dynamically via JavaScript"
+            ])
         
         return "\n".join(content_parts)
     
@@ -378,20 +432,59 @@ class DrugsCollector(BaseCollector):
             f"Collection Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             "",
             "Interaction Information:",
-            f"Drug interaction data for {drug_name} from Drugs.com",
-            "This includes information about potential drug-drug interactions,",
+            f"Enhanced drug interaction data for {drug_name} from Drugs.com",
+            "This includes comprehensive information about potential drug-drug interactions,",
             "drug-food interactions, and other relevant interaction data.",
-            "",
-            "Note: This is a placeholder for extracted interaction content.",
-            "In a full implementation, this would contain parsed HTML content with:",
-            "- Major drug interactions",
-            "- Moderate drug interactions", 
-            "- Minor drug interactions",
-            "- Drug-food interactions",
-            "- Drug-alcohol interactions",
-            "- Interaction severity levels",
-            "- Clinical significance of interactions"
+            ""
         ]
+        
+        # Enhanced interaction extraction
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # Extract major interactions
+        major_interactions = soup.find_all(['div', 'p'], string=re.compile(r'major\s+interaction|severe\s+interaction', re.I))
+        if major_interactions:
+            for section in major_interactions:
+                text = section.get_text().strip()
+                if len(text) > 30:
+                    content_parts.append(f"Major Interactions: {text[:250]}...")
+                    break
+        
+        # Extract moderate interactions
+        moderate_interactions = soup.find_all(['div', 'p'], string=re.compile(r'moderate\s+interaction', re.I))
+        if moderate_interactions:
+            for section in moderate_interactions:
+                text = section.get_text().strip()
+                if len(text) > 30:
+                    content_parts.append(f"Moderate Interactions: {text[:250]}...")
+                    break
+        
+        # Extract drug-food interactions
+        food_interactions = soup.find_all(['div', 'p'], string=re.compile(r'food\s+interaction|take\s+with\s+food', re.I))
+        if food_interactions:
+            for section in food_interactions:
+                text = section.get_text().strip()
+                if len(text) > 30:
+                    content_parts.append(f"Food Interactions: {text[:200]}...")
+                    break
+        
+        # Extract alcohol interactions
+        alcohol_interactions = soup.find_all(['div', 'p'], string=re.compile(r'alcohol\s+interaction|drinking\s+alcohol', re.I))
+        if alcohol_interactions:
+            for section in alcohol_interactions:
+                text = section.get_text().strip()
+                if len(text) > 30:
+                    content_parts.append(f"Alcohol Interactions: {text[:200]}...")
+                    break
+        
+        if len(content_parts) <= 3:  # Still no meaningful content
+            content_parts.extend([
+                "Drug interaction information not found in accessible content.",
+                "This may indicate:",
+                "- Interaction data requires medical professional access",
+                "- Information is in specialized databases",
+                "- Content is dynamically loaded"
+            ])
         
         return "\n".join(content_parts)
     
