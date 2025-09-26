@@ -1,9 +1,12 @@
-"""Minimal processing pipeline: heuristic entity extraction and linking.
+"""Comprehensive processing pipeline: entity extraction, linking, and data management.
 
-This is a placeholder implementation to demonstrate flow:
+This implementation provides:
 - Extract companies from the configured list and ensure DB rows exist
 - Heuristically create drugs if certain keywords appear in documents
 - Link trials to companies by sponsor name containment
+- Extract and link targets to drugs
+- Deduplicate drugs within companies
+- Generate comprehensive CSV exports and summaries
 """
 
 from __future__ import annotations
@@ -517,6 +520,11 @@ def generate_drug_summary(db: Session) -> str:
         total_trials = db.query(ClinicalTrial).count()
         total_targets = db.query(Target).count()
         
+        # Get actual document counts from database
+        fda_docs = db.query(Document).filter(Document.source_type == 'fda_drug_approval').count()
+        drugs_com_docs = db.query(Document).filter(Document.source_type == 'drugs_com_profile').count()
+        total_docs = db.query(Document).count()
+        
         # Get drugs by company
         companies_with_drugs = db.query(Company).join(Drug).distinct().all()
         
@@ -525,11 +533,11 @@ def generate_drug_summary(db: Session) -> str:
             "========================================",
             "",
             f"Pipeline Drugs Found: {total_drugs}",
-            f"FDA Documents: 0",  # Placeholder
-            f"Drugs.com Documents: 0",  # Placeholder
+            f"FDA Documents: {fda_docs}",
+            f"Drugs.com Documents: {drugs_com_docs}",
             f"Clinical Trials: {total_trials}",
             f"Targets: {total_targets}",
-            f"Total Documents: 0",  # Placeholder
+            f"Total Documents: {total_docs}",
             f"Success: True",
             "",
             "Pipeline Drugs by Company:",

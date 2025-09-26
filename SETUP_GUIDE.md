@@ -64,7 +64,7 @@ EMBED_MODEL=text-embedding-3-small
 
 # Option 2: Ollama (Local, free)
 # MODEL_PROVIDER=ollama
-# CHAT_MODEL=gpt-oss:20b
+# CHAT_MODEL=llama3.1
 # EMBED_MODEL=nomic-embed-text
 # OLLAMA_HOST=http://localhost:11434
 
@@ -106,7 +106,7 @@ REQUEST_DELAY=1.0
 3. **Download required models:**
    ```bash
    # In a new terminal
-   ollama pull gpt-oss:20b
+   ollama pull llama3.1
    ollama pull nomic-embed-text
    ```
 
