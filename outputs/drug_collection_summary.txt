@@ -1,12 +1,12 @@
 Comprehensive Drug Collection Summary
 ========================================
 
-Pipeline Drugs Found: 32
-FDA Documents: 399
-Clinical Trial Documents: 1260
-Company Documents: 105
+Pipeline Drugs Found: 94
+FDA Documents: 1591
+Clinical Trial Documents: 6526
+Company Documents: 185
 Clinical Trials (Extracted): 1138
-Total Documents: 1908
+Total Documents: 9069
 Success: True
 
 Pipeline Drugs by Company:
@@ -14,21 +14,83 @@ Pipeline Drugs by Company:
 
 Roche/Genentech:
 ----------------
-    1. ATEZOLIZUMAB
-    2. COBIMETINIB
-    3. ENTRECTINIB
-    4. GLOFITAMAB
-    5. MOSUNETUZUMAB
-    6. OBINUTUZUMAB
-    7. PERTUZUMAB
-    8. RITUXIMAB
-    9. VEMURAFENIB
+    1. Abemaciclib
+    2. Alectinib
+    3. Atezolizumab
+    4. Avelumab
+    5. Bevacizumab
+    6. Blinatumomab
+    7. Cemiplimab
+    8. Ceritinib
+    9. Cevostamab
+   10. Cobimetinib
+   11. Codrituzumab
+   12. Crizotinib
+   13. Dasatinib
+   14. Durvalumab
+   15. Entrectinib
+   16. Glofitamab
+   17. Ifinatamab
+   18. Ipilimumab
+   19. Lorlatinib
+   20. Mosunetuzumab
+   21. Nemtabrutinib
+   22. Nivolumab
+   23. Obinutuzumab
+   24. Olaparib
+   25. Palbociclib
+   26. Pembrolizumab
+   27. Pertuzumab
+   28. Polatuzumab
+   29. Quavonlimab
+   30. Relatlimab
+   31. Ribociclib
+   32. Rituximab
+   33. Rucaparib
+   34. Sacituzumab
+   35. Talazoparib
+   36. Trastuzumab
+   37. Vemurafenib
+   38. Zilovertamab
+   39. abemaciclib
+   40. alectinib
+   41. atezolizumab
+   42. avelumab
+   43. bevacizumab
+   44. blinatumomab
+   45. cemiplimab
+   46. ceritinib
+   47. cevostamab
+   48. codrituzumab
+   49. crizotinib
+   50. dasatinib
+   51. durvalumab
+   52. glofitamab
+   53. ifinatamab
+   54. ipilimumab
+   55. lorlatinib
+   56. mosunetuzumab
+   57. nemtabrutinib
+   58. nivolumab
+   59. olaparib
+   60. palbociclib
+   61. pembrolizumab
+   62. polatuzumab
+   63. quavonlimab
+   64. relatlimab
+   65. ribociclib
+   66. rituximab
+   67. rucaparib
+   68. sacituzumab
+   69. talazoparib
+   70. trastuzumab
+   71. zilovertamab
 
 Amgen:
 ------
-    1. BLINATUMOMAB
-    2. PANITUMUMAB
-    3. TARLATAMAB
+    1. Blinatumomab
+    2. Panitumumab
+    3. Tarlatamab
 
 Daiichi Sankyo:
 ---------------
@@ -36,29 +98,29 @@ Daiichi Sankyo:
 
 Amneal Pharmaceuticals LLC:
 ---------------------------
-    1. BEVACIZUMAB
+    1. Bevacizumab
 
 Genmab US, Inc.:
 ----------------
-    1. EPCORITAMAB
+    1. Epcoritamab
 
 AstraZeneca Pharmaceuticals LP:
 -------------------------------
-    1. DURVALUMAB
-    2. OLAPARIB
-    3. OSIMERTINIB
-    4. TREMELIMUMAB
+    1. Durvalumab
+    2. Olaparib
+    3. Osimertinib
+    4. Tremelimumab
 
 Teva Pharmaceuticals, Inc.:
 ---------------------------
-    1. GEFITINIB
-    2. LAPATINIB
-    3. SORAFENIB
+    1. Gefitinib
+    2. Lapatinib
+    3. Sorafenib
 
 Astellas Pharma US, Inc.:
 -------------------------
-    1. GILTERITINIB
-    2. ZOLBETUXIMAB
+    1. Gilteritinib
+    2. Zolbetuximab
 
 Merck & Co.:
 ------------
@@ -66,33 +128,33 @@ Merck & Co.:
 
 Bristol Myers Squibb:
 ---------------------
-    1. IPILIMUMAB
+    1. Ipilimumab
     2. Nivolumab
 
 EMD Serono, Inc.:
 -----------------
-    1. AVELUMAB
+    1. Avelumab
 
 Regeneron Pharmaceuticals, Inc.:
 --------------------------------
-    1. CEMIPLIMAB
+    1. Cemiplimab
 
 Sun Pharmaceutical Industries, Inc.:
 ------------------------------------
-    1. ERLOTINIB
+    1. Erlotinib
 
 Cipla USA Inc.:
 ---------------
-    1. contracept
+    1. Contracept
 
 ImClone LLC:
 ------------
-    1. CETUXIMAB
+    1. Cetuximab
 
 
 Summary by Company:
 ====================
-  Roche/Genentech: 9 drugs
+  Roche/Genentech: 71 drugs
   Pfizer Laboratories Div Pfizer Inc: 0 drugs
   Amgen: 3 drugs
   Daiichi Sankyo: 1 drugs
@@ -188,3 +250,37 @@ Summary by Company:
   ENDO USA, Inc.: 0 drugs
   Wyeth Pharmaceuticals LLC, a subsidiary of Pfizer Inc.: 0 drugs
   Almaject, Inc.: 0 drugs
+  JNJ: 0 drugs
+  Pfizer: 0 drugs
+  Novartis: 0 drugs
+  Merck & Co: 0 drugs
+  AbbVie: 0 drugs
+  Sanofi: 0 drugs
+  AstraZeneca: 0 drugs
+  Eli Lilly: 0 drugs
+  GlaxoSmithKline (GSK): 0 drugs
+  Bayer: 0 drugs
+  Takeda Pharmaceutical: 0 drugs
+  Boehringer Ingelheim: 0 drugs
+  Moderna: 0 drugs
+  Regeneron Pharmaceuticals: 0 drugs
+  CSL: 0 drugs
+  Biogen: 0 drugs
+  Vertex Pharmaceuticals: 0 drugs
+  Gilead Sciences: 0 drugs
+  BeiGene: 0 drugs
+  Incyte: 0 drugs
+  Alnylam Pharmaceuticals: 0 drugs
+  Daiichi: 0 drugs
+  Merck KGaA: 0 drugs
+  BioNTech: 0 drugs
+  Astellas Pharma: 0 drugs
+  Iovance: 0 drugs
+  Sandoz: 0 drugs
+  Bausch Health: 0 drugs
+  Nuvalent: 0 drugs
+  PMV Pharma: 0 drugs
+  Servier: 0 drugs
+  A2 Bio: 0 drugs
+  Bicycle: 0 drugs
+  Summit Therapeutics: 0 drugs

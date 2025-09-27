@@ -1,131 +1,108 @@
 {
-  "last_run": "2025-09-22T22:56:35.822200",
+  "last_run": "2025-09-26T12:17:25.408071",
   "maintenance": {
-    "last_run": "2025-09-22T22:44:45.785865",
+    "last_run": "2025-09-26T11:48:14.084199",
     "success": true,
     "details": {
-      "total_tasks": 4,
-      "successful_tasks": 4,
-      "failed_tasks": 0,
+      "total_tasks": 3,
+      "successful_tasks": 2,
+      "failed_tasks": 1,
       "task_results": {
-        "database_initialization": {
-          "success": true,
-          "result": {
-            "success": true,
-            "message": "Database tables initialized"
-          }
-        },
         "drug_capitalization": {
           "success": true,
           "result": {
-            "total_drugs": 0,
-            "updated_drugs": 0
+            "total_drugs": 164,
+            "updated_drugs": 51
           }
         },
         "drug_validation": {
           "success": true,
           "result": {
-            "total_drugs": 0,
+            "total_drugs": 164,
             "removed_drugs": 0,
-            "remaining_drugs": 0
+            "remaining_drugs": 164
           }
         },
         "drug_deduplication": {
-          "success": true,
-          "result": {
-            "total_drugs": 0,
-            "removed_duplicates": 0,
-            "remaining_drugs": 0
-          }
+          "success": false,
+          "error": "(sqlite3.IntegrityError) NOT NULL constraint failed: drug_targets.drug_id\n[SQL: UPDATE drug_targets SET drug_id=? WHERE drug_targets.id = ?]\n[parameters: [(None, 341), (None, 345), (None, 346), (None, 348), (None, 353), (None, 355), (None, 362), (None, 1666)  ... displaying 10 of 68 total bound parameter sets ...  (None, 5509), (None, 5650)]]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
         }
       }
     }
   },
   "data_collection": {
-    "last_run": "2025-09-22T22:56:09.497865",
+    "last_run": "2025-09-26T12:16:11.778598",
     "success": true,
     "details": {
       "maintenance": {
-        "total_tasks": 4,
-        "successful_tasks": 4,
-        "failed_tasks": 0,
+        "total_tasks": 3,
+        "successful_tasks": 2,
+        "failed_tasks": 1,
         "task_results": {
-          "database_initialization": {
-            "success": true,
-            "result": {
-              "success": true,
-              "message": "Database tables initialized"
-            }
-          },
           "drug_capitalization": {
             "success": true,
             "result": {
-              "total_drugs": 0,
+              "total_drugs": 164,
               "updated_drugs": 0
             }
           },
           "drug_validation": {
             "success": true,
             "result": {
-              "total_drugs": 0,
+              "total_drugs": 164,
               "removed_drugs": 0,
-              "remaining_drugs": 0
+              "remaining_drugs": 164
             }
           },
           "drug_deduplication": {
-            "success": true,
-            "result": {
-              "total_drugs": 0,
-              "removed_duplicates": 0,
-              "remaining_drugs": 0
-            }
+            "success": false,
+            "error": "(sqlite3.IntegrityError) NOT NULL constraint failed: drug_targets.drug_id\n[SQL: UPDATE drug_targets SET drug_id=? WHERE drug_targets.id = ?]\n[parameters: [(None, 341), (None, 345), (None, 346), (None, 348), (None, 353), (None, 355), (None, 362), (None, 1666)  ... displaying 10 of 68 total bound parameter sets ...  (None, 5509), (None, 5650)]]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
           }
         }
       },
-      "clinical_trials": 0,
-      "fda": 175,
-      "company_websites": 105,
-      "drugs": 1628,
+      "clinical_trials": 30,
+      "fda": 61,
+      "company_websites": 20,
+      "drugs": 1704,
       "csv_generation": {
-        "drugs_dashboard_csv": "outputs/drugs_dashboard.csv",
+        "biopharma_drugs_csv": "outputs/biopharma_drugs.csv",
+        "basic_export_csv": "outputs/basic_export.csv",
         "drug_summary_txt": "outputs/drug_collection_summary.txt",
         "success": true
       }
     }
   },
   "processing": {
-    "last_run": "2025-09-22T22:56:35.574376",
+    "last_run": "2025-09-26T12:17:25.025478",
     "success": true,
     "details": {
-      "entity_extraction": {
-        "companies_created": 0,
-        "drugs_created": 301,
-        "clinical_trials_created": 1281,
-        "targets_created": 301,
-        "relationships_created": 1
-      },
+      "companies_created": 0,
+      "drugs_created": 10473,
       "trials_linked": 0,
-      "targets_extracted": 132,
-      "drug_target_relationships": 0,
-      "trials_linked_to_drugs": 70,
+      "targets_from_docs": 0,
+      "targets_from_names": 0,
+      "drug_target_relationships": 4714,
+      "trials_linked_to_drugs": 0,
       "deduplication": {
-        "duplicates_removed": 0,
+        "duplicates_removed": 10473,
         "success": true
       },
       "csv_generated": {
-        "drugs_dashboard_csv": "outputs/drugs_dashboard.csv",
+        "biopharma_drugs_csv": "outputs/biopharma_drugs.csv",
+        "basic_export_csv": "outputs/basic_export.csv",
         "drug_summary_txt": "outputs/drug_collection_summary.txt",
         "success": true
       }
     }
   },
   "exports": {
-    "last_run": "2025-09-22T22:56:35.691038",
+    "last_run": "2025-09-26T12:17:25.408073",
     "success": true,
     "details": {
-      "drugs_dashboard": "outputs/drugs_dashboard.csv",
+      "drug_table": "outputs/biopharma_drugs.csv",
+      "basic_export": "outputs/basic_export.csv",
       "drug_summary": "outputs/drug_collection_summary.txt",
-      "timestamp": "2025-09-22T22:56:35.691031"
+      "timestamp": "2025-09-26T12:17:25.408066"
     }
   },
   "validation": {
@@ -145,6 +122,6 @@
     }
   },
   "database_stats": {
-    "hash": "d1d90d07559c6a58e7adb27478036972"
+    "hash": "5726646d2a2419ba96942f80d575696b"
   }
 }
