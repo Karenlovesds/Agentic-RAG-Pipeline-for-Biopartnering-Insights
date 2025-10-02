@@ -204,9 +204,9 @@ Agentic-RAG-Pipeline-for-Biopartnering-Insights/
 │   │   ├── regenerate_drug_summary.py
 │   │   └── update_companies_pipeline_links.py
 │   ├── rag/                      # RAG system
-│   │   ├── rag_agent.py
-│   │   ├── models.py
-│   │   ├── provider.py
+│   │   ├── react_rag_agent.py
+│   │   ├── vector_db_manager.py
+│   │   ├── ground_truth_loader.py
 │   │   └── cache_manager.py
 │   └── monitoring/               # Monitoring and alerts
 │       ├── change_detector.py
@@ -350,7 +350,7 @@ Agentic-RAG-Pipeline-for-Biopartnering-Insights/
 4. Regenerate drug collection
 
 #### Improving RAG Responses
-1. Enhance prompt engineering in `rag_agent.py`
+1. Enhance prompt engineering in `react_rag_agent.py`
 2. Improve context retrieval
 3. Add new evaluation metrics
 4. Test with sample queries

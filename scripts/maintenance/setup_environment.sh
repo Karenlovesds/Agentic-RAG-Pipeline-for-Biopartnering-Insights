@@ -76,12 +76,13 @@ print('✅ Database initialized successfully')
 # Test installation
 echo "🧪 Testing installation..."
 python -c "
-from src.rag.provider import build_provider
+from src.rag.react_rag_agent import ReactRAGAgent
 from src.models.database import get_db
+from config.config import settings
 
-# Test provider
-provider = build_provider('ollama', 'llama3.1', 'nomic-embed-text')
-print('✅ Ollama provider working')
+# Test React RAG agent
+agent = ReactRAGAgent(settings)
+print('✅ React RAG agent working')
 
 # Test database
 db = get_db()

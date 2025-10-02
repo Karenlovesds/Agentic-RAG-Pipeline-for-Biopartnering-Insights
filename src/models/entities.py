@@ -250,6 +250,27 @@ class ClinicalTrialResponse(BaseModel):
     updated_at: datetime
 
 
+class FeedbackData(Base):
+    """Feedback data model for RAG system improvement."""
+    __tablename__ = "feedback_data"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String(255), index=True, nullable=False)
+    message_index = Column(Integer, nullable=False)
+    rating = Column(Integer, nullable=False)  # 1-5 scale
+    detailed_issues = Column(JSON, nullable=True)  # List of issue types
+    comments = Column(Text, nullable=True)
+    question = Column(Text, nullable=True)
+    response = Column(Text, nullable=True)
+    user_agent = Column(String(500), nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    
+    # Indexes for better query performance
+    __table_args__ = (
+        {'extend_existing': True}
+    )
+
+
 class BiopartneringInsight(BaseModel):
     """Pydantic model for biopartnering insights."""
     query: str

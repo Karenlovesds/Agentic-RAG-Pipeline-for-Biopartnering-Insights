@@ -1,12 +1,12 @@
 Comprehensive Drug Collection Summary
 ========================================
 
-Pipeline Drugs Found: 94
-FDA Documents: 1591
-Clinical Trial Documents: 6526
-Company Documents: 185
+Pipeline Drugs Found: 96
+FDA Documents: 1890
+Clinical Trial Documents: 7872
+Company Documents: 205
 Clinical Trials (Extracted): 1138
-Total Documents: 9069
+Total Documents: 10890
 Success: True
 
 Pipeline Drugs by Company:
@@ -56,35 +56,37 @@ Roche/Genentech:
    40. alectinib
    41. atezolizumab
    42. avelumab
-   43. bevacizumab
-   44. blinatumomab
-   45. cemiplimab
-   46. ceritinib
-   47. cevostamab
-   48. codrituzumab
-   49. crizotinib
-   50. dasatinib
-   51. durvalumab
-   52. glofitamab
-   53. ifinatamab
-   54. ipilimumab
-   55. lorlatinib
-   56. mosunetuzumab
-   57. nemtabrutinib
-   58. nivolumab
-   59. olaparib
-   60. palbociclib
-   61. pembrolizumab
-   62. polatuzumab
-   63. quavonlimab
-   64. relatlimab
-   65. ribociclib
-   66. rituximab
-   67. rucaparib
-   68. sacituzumab
-   69. talazoparib
-   70. trastuzumab
-   71. zilovertamab
+   43. belatacept
+   44. bevacizumab
+   45. blinatumomab
+   46. cemiplimab
+   47. ceritinib
+   48. cevostamab
+   49. codrituzumab
+   50. crizotinib
+   51. dasatinib
+   52. durvalumab
+   53. glofitamab
+   54. ifinatamab
+   55. ipilimumab
+   56. lorlatinib
+   57. mosunetuzumab
+   58. nemtabrutinib
+   59. niraparib
+   60. nivolumab
+   61. olaparib
+   62. palbociclib
+   63. pembrolizumab
+   64. polatuzumab
+   65. quavonlimab
+   66. relatlimab
+   67. ribociclib
+   68. rituximab
+   69. rucaparib
+   70. sacituzumab
+   71. talazoparib
+   72. trastuzumab
+   73. zilovertamab
 
 Amgen:
 ------
@@ -154,7 +156,7 @@ ImClone LLC:
 
 Summary by Company:
 ====================
-  Roche/Genentech: 71 drugs
+  Roche/Genentech: 73 drugs
   Pfizer Laboratories Div Pfizer Inc: 0 drugs
   Amgen: 3 drugs
   Daiichi Sankyo: 1 drugs

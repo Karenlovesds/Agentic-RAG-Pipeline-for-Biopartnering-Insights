@@ -1,10 +1,20 @@
 # Core AI and RAG dependencies
-pydantic-ai==0.0.14
+pydantic-ai==0.0.14 # new
 ragas==0.1.17
-langchain==0.2.16
-langchain-ollama==0.1.0
-langchain-openai==0.1.8
-langchain-community==0.2.16
+langchain==0.3.27 # new
+langchain-ollama==0.3.8
+langchain-openai==0.3.33
+langchain-community==0.3.29
+
+# LlamaIndex and React RAG Agent
+llama-index==0.12.5 # new
+llama-index-core==0.12.5 # new
+llama-index-llms-ollama==0.5.0 #new
+llama-index-embeddings-huggingface==0.4.0 # new
+
+# Vector Database
+chromadb==1.0.21 # new
+sentence-transformers==3.3.1 # new
 
 # Web framework and UI
 streamlit==1.39.0
@@ -13,6 +23,7 @@ streamlit-option-menu==0.3.6
 # Data processing and analysis
 pandas==2.2.3
 numpy==1.26.4
+openpyxl==3.1.5 # new
 
 # Database and ORM
 sqlalchemy==2.0.36
@@ -20,13 +31,13 @@ alembic==1.13.3
 
 # Web scraping and crawling
 crawl4ai==0.7.4
-beautifulsoup4==4.12.3
+beautifulsoup4==4.12.3  # Note: import as 'from bs4 import BeautifulSoup'
 lxml~=5.3
 playwright>=1.49.0
 selenium==4.21.0
 
 # HTTP and API clients
-requests==2.32.3
+requests>=2.32.5,<3
 httpx==0.27.2
 aiohttp>=3.11.11
 
@@ -36,8 +47,8 @@ pydantic>=2.10
 pydantic-settings==2.6.0
 
 # AI providers
-openai==1.51.2
-ollama==0.3.1
+openai>=1.104.2,<2.0.0
+ollama==0.6.0 # new
 
 # Logging and monitoring
 loguru==0.7.2

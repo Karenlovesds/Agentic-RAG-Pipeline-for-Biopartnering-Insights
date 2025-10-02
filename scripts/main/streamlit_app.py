@@ -5,6 +5,9 @@ import sys
 from pathlib import Path
 import asyncio
 import pandas as pd
+import io
+import uuid
+import json
 from datetime import datetime
 from loguru import logger
 
@@ -16,24 +19,33 @@ from src.models.database import get_db
 from src.models.entities import Document, Company, Drug, ClinicalTrial, Target, DrugTarget
 from src.data_collection.orchestrator import DataCollectionOrchestrator
 from config.config import settings, get_target_companies
-from src.rag.provider import build_provider, OllamaProvider
-from src.rag.rag_agent import create_enhanced_basic_rag_agent
-from src.rag.models import DrugSearchQuery, ClinicalTrialSearchQuery, BiopartneringQuery
+from src.rag.react_rag_agent import ReactRAGAgent
+from src.evaluation.feedback_manager import FeedbackManager, create_feedback_tables
 from src.rag.cache_manager import RAGCacheManager
 from src.processing.csv_export import export_basic, export_drug_table
 from src.processing.pipeline import run_processing
-from src.evaluation.ragas_eval import evaluate_rag_agent
-from src.evaluation.feedback_analysis import (
-    analyze_feedback_patterns, 
-    get_improvement_recommendations,
-    generate_feedback_summary,
-    export_feedback_data,
-    create_feedback_dashboard_data,
+from src.evaluation.react_agent_eval import evaluate_react_agent
+from src.evaluation.feedback_analyzer import (
+    get_enhanced_feedback_analysis,
+    get_feedback_trends,
+    get_rag_improvement_plan,
     get_detailed_feedback_options,
-    validate_feedback_data,
-    get_feedback_insights
+    analyze_feedback_patterns,
+    get_improvement_recommendations,
+    export_feedback_data
 )
+from src.analysis.market_analysis_dashboard import main_market_analysis_dashboard
+from src.analysis.overlap_dashboard import main_overlap_dashboard
+from src.analysis.ticket_analysis_dashboard import main_ticket_analysis_dashboard
+from src.rag.ground_truth_loader import GroundTruthLoader
 
+
+# Initialize feedback tables on startup
+try:
+    create_feedback_tables()
+    logger.info("Feedback tables initialized successfully")
+except Exception as e:
+    logger.error(f"Error initializing feedback tables: {e}")
 
 # Page configuration
 st.set_page_config(
@@ -75,6 +87,10 @@ def render_enhanced_feedback(message_index: int, message_role: str):
     if "detailed_feedback" not in st.session_state:
         st.session_state.detailed_feedback = {}
     
+    # Initialize feedback manager
+    if "feedback_manager" not in st.session_state:
+        st.session_state.feedback_manager = FeedbackManager()
+    
     st.write("**📝 Help us improve this response:**")
     
     feedback_col1, feedback_col2 = st.columns([2, 1])
@@ -92,6 +108,40 @@ def render_enhanced_feedback(message_index: int, message_role: str):
         if rating != st.session_state.feedback.get(message_index, 3):
             st.session_state.feedback[message_index] = rating
             st.success(f"Thank you for rating this response {rating}/5!")
+            
+            # Auto-save feedback to database
+            try:
+                session_id = st.session_state.get("session_id", str(uuid.uuid4()))
+                if "session_id" not in st.session_state:
+                    st.session_state.session_id = session_id
+                
+                # Get question and response
+                question = None
+                response = None
+                if message_index > 0 and message_index < len(st.session_state.messages):
+                    if message_index > 0:
+                        question = st.session_state.messages[message_index - 1].get("content", "")
+                    response = st.session_state.messages[message_index].get("content", "")
+                
+                # Save to database
+                success = st.session_state.feedback_manager.save_feedback(
+                    session_id=session_id,
+                    message_index=message_index,
+                    rating=rating,
+                    detailed_issues=st.session_state.detailed_feedback.get(message_index, []),
+                    question=question,
+                    response=response,
+                    user_agent=st.get_option("browser.serverAddress")
+                )
+                
+                if success:
+                    st.info("💾 Feedback saved automatically!")
+                else:
+                    st.warning("⚠️ Could not save feedback to database")
+                    
+            except Exception as e:
+                logger.error(f"Error saving feedback: {e}")
+                st.warning("⚠️ Could not save feedback to database")
         
         # Detailed feedback options
         st.write("**Specific Issues (select all that apply):**")
@@ -131,6 +181,39 @@ def render_enhanced_feedback(message_index: int, message_role: str):
             if "comments" not in st.session_state.detailed_feedback[message_index]:
                 st.session_state.detailed_feedback[message_index] = st.session_state.detailed_feedback[message_index] + ["comments"]
             st.session_state.detailed_feedback[message_index].append(f"comment: {comment.strip()}")
+            
+            # Auto-save detailed feedback to database
+            try:
+                session_id = st.session_state.get("session_id", str(uuid.uuid4()))
+                if "session_id" not in st.session_state:
+                    st.session_state.session_id = session_id
+                
+                # Get question and response
+                question = None
+                response = None
+                if message_index > 0 and message_index < len(st.session_state.messages):
+                    if message_index > 0:
+                        question = st.session_state.messages[message_index - 1].get("content", "")
+                    response = st.session_state.messages[message_index].get("content", "")
+                
+                # Save detailed feedback to database
+                rating = st.session_state.feedback.get(message_index, 3)
+                success = st.session_state.feedback_manager.save_feedback(
+                    session_id=session_id,
+                    message_index=message_index,
+                    rating=rating,
+                    detailed_issues=st.session_state.detailed_feedback[message_index],
+                    question=question,
+                    response=response,
+                    user_agent=st.get_option("browser.serverAddress")
+                )
+                
+                if success:
+                    st.info("💾 Detailed feedback saved!")
+                    
+            except Exception as e:
+                logger.error(f"Error saving detailed feedback: {e}")
+                st.warning("⚠️ Could not save detailed feedback")
     
     with feedback_col2:
         if message_index in st.session_state.feedback:
@@ -155,72 +238,19 @@ def render_enhanced_feedback(message_index: int, message_role: str):
 
 
 def generate_follow_up_questions(answer_text: str, original_question: str) -> list:
-    """Generate contextual follow-up questions based on the assistant's response."""
-    follow_up_questions = []
+    """Generate unified follow-up questions for all biopharmaceutical queries."""
     
-    # Extract key terms from the answer
-    answer_lower = answer_text.lower()
-    
-    # Drug-related follow-ups
-    if any(term in answer_lower for term in ['drug', 'therapeutic', 'medicine', 'mab', 'nib', 'cept']):
-        follow_up_questions.extend([
-            "What are the side effects of these drugs?",
-            "Which companies are developing similar drugs?",
-            "What is the mechanism of action of these drugs?",
-            "Are there any drug interactions to be aware of?"
-        ])
-    
-    # Clinical trial follow-ups
-    if any(term in answer_lower for term in ['trial', 'clinical', 'phase', 'study', 'nct']):
-        follow_up_questions.extend([
-            "What are the primary endpoints of these trials?",
-            "Which phase are these trials in?",
-            "What is the enrollment status?",
-            "Are there any safety concerns reported?"
-        ])
-    
-    # Company/partnership follow-ups
-    if any(term in answer_lower for term in ['company', 'partnership', 'collaboration', 'merger']):
-        follow_up_questions.extend([
-            "What other partnerships does this company have?",
-            "What is the company's pipeline strategy?",
-            "Are there any recent acquisitions?",
-            "What is the company's market position?"
-        ])
-    
-    # Indication/disease follow-ups
-    if any(term in answer_lower for term in ['cancer', 'oncology', 'tumor', 'metastatic', 'biomarker']):
-        follow_up_questions.extend([
-            "What biomarkers are associated with this indication?",
-            "What is the prevalence of this cancer type?",
-            "Are there any unmet medical needs?",
-            "What are the current treatment options?"
-        ])
-    
-    # FDA/regulatory follow-ups
-    if any(term in answer_lower for term in ['fda', 'approval', 'regulatory', 'label', 'indication']):
-        follow_up_questions.extend([
-            "What is the FDA approval timeline?",
-            "Are there any regulatory challenges?",
-            "What are the labeling requirements?",
-            "Are there any post-marketing commitments?"
-        ])
-    
-    # Generic follow-ups (always include some)
-    generic_questions = [
-        "Can you provide more details about this?",
-        "What are the latest developments?",
-        "How does this compare to competitors?",
-        "What are the commercial implications?"
+    # Unified set of comprehensive follow-up questions for all queries
+    follow_up_questions = [
+        "What other companies are targeting this same target?",
+        "What are the different mechanisms of action for this target?",
+        "Which drugs are in clinical trials for this target?",
+        "What is the competitive landscape for this target?",
+        "Which indications are being targeted with this target?",
+        "What are the latest developments in this area?"
     ]
     
-    # Add generic questions if we don't have enough specific ones
-    if len(follow_up_questions) < 4:
-        follow_up_questions.extend(generic_questions[:4-len(follow_up_questions)])
-    
-    # Remove duplicates and limit to 4 questions
-    unique_questions = list(dict.fromkeys(follow_up_questions))
-    return unique_questions[:4]
+    return follow_up_questions
 
 
 def get_database_stats():
@@ -306,7 +336,7 @@ def main():
         st.header("Navigation")
         page = st.selectbox(
             "Select Page",
-            ["Dashboard", "Data Collection", "RAG Agent", "Results", "Evaluation", "Settings"]
+            ["Dashboard", "Data Collection", "Agentic RAG", "Ground Truth", "Market Analysis", "Overlap Analysis", "Business Analysis", "Results", "Evaluation", "Feedback Analytics", "Settings"]
         )
         
         st.header("Database Status")
@@ -325,20 +355,16 @@ def main():
         except Exception as e:
             st.write(f"**RAG Cache:** Error loading stats")
         
-        st.header("Model Provider")
-        provider = st.selectbox("Provider", ["openai", "ollama"], index=0 if settings.model_provider == "openai" else 1)
-        chat_model = st.text_input("Chat model", value=settings.chat_model)
-        embed_model = st.text_input("Embedding model", value=settings.embed_model)
-        if st.button("Test connection"):
+        st.header("Agentic RAG Agent")
+        st.info("🤖 Using Enhanced Agentic RAG with Vector Database")
+        
+        if st.button("Test Agentic RAG"):
             try:
-                p = build_provider(provider, chat_model, embed_model, settings.openai_api_key)
-                resp = p.chat([
-                    {"role": "system", "content": "You are a healthtech assistant."},
-                    {"role": "user", "content": "Say hello in one short sentence."}
-                ])
-                st.success(f"Provider OK. Sample reply: {resp.content[:100]}")
+                react_agent = ReactRAGAgent(settings)
+                result = react_agent.generate_response("Say hello in one short sentence.")
+                st.success(f"Agentic RAG OK. Sample reply: {result['answer'][:100]}")
             except Exception as e:
-                st.error(f"Provider test failed: {e}")
+                st.error(f"Agentic RAG test failed: {e}")
 
         
         for key, value in stats.items():
@@ -352,12 +378,22 @@ def main():
         show_dashboard()
     elif page == "Data Collection":
         show_data_collection()
-    elif page == "RAG Agent":
+    elif page == "Agentic RAG":
         show_rag_agent()
+    elif page == "Ground Truth":
+        show_ground_truth()
+    elif page == "Market Analysis":
+        main_market_analysis_dashboard()
+    elif page == "Overlap Analysis":
+        main_overlap_dashboard()
+    elif page == "Business Analysis":
+        show_business_analysis()
     elif page == "Results":
         show_results()
     elif page == "Evaluation":
         show_evaluation()
+    elif page == "Feedback Analytics":
+        show_feedback_analytics()
     elif page == "Settings":
         show_settings()
 
@@ -492,7 +528,6 @@ def show_dashboard():
                 )
             else:
                 st.warning("No drugs match the current filters. Try adjusting your search criteria.")
-            
         else:
             st.info("No biopharma drugs data found. Run data collection to generate results.")
             
@@ -640,12 +675,16 @@ def run_data_collection_ui(sources_selected):
 
 
 def show_rag_agent():
-    """Show RAG agent page with Ollama integration."""
-    st.header("🤖 RAG Agent (Ollama)")
+    """Show Agentic RAG agent page."""
+    st.header("🤖 Agentic RAG")
     
     st.markdown("""
-    Ask questions about oncology biopartnering opportunities, cancer drug approvals, and clinical trials.
-    The AI agent uses Ollama (llama3.1) to provide responses based on your collected biopharma data.
+    **🧠 React Framework Agent**: Uses reasoning, acting, and observing to provide more reliable answers.
+    - **Reasoning**: Thinks through problems step-by-step
+    - **Acting**: Uses tools to search databases and ground truth
+    - **Observing**: Analyzes results and decides next steps
+    - **Iterative**: Can refine answers based on observations
+    - **Cross-Validation**: Compares data across multiple sources for accuracy
     """)
     
     # Search filters (UI ready, backend implementation pending)
@@ -655,29 +694,8 @@ def show_rag_agent():
         st.write("**Search Options**")
     
     with col2:
-        source_filter = st.selectbox("Filter by source", ["All", "clinical_trials", "drugs_com", "fda", "company_website"], help="Filter search results by data source (UI ready, backend implementation pending)")
+        st.write("**Chat Controls**")
     
-    if source_filter != "All":
-        st.info(f"🔧 Source filtering for '{source_filter}' is not yet implemented in the backend. All sources will be searched.")
-    
-    # Build provider based on sidebar selections
-    prov_name = st.session_state.get('provider_selection', settings.model_provider)
-    chat_model = st.session_state.get('chat_model_selection', settings.chat_model)
-    embed_model = st.session_state.get('embed_model_selection', settings.embed_model)
-    
-    # Use Basic RAG with selected provider
-    if prov_name == "ollama":
-        st.info("🤖 Using Basic RAG with Ollama (requires local Ollama installation)")
-        agent_type = "Basic RAG (Ollama)"
-    else:
-        st.info("🤖 Using Basic RAG with OpenAI (cloud-based)")
-        agent_type = "Basic RAG (OpenAI)"
-
-    try:
-        provider = build_provider(prov_name, chat_model, embed_model, settings.openai_api_key)
-    except ValueError as e:
-        st.error(f"LLM Provider configuration error: {e}. Please check settings.")
-        return
 
     # Chat interface
     if "messages" not in st.session_state:
@@ -736,67 +754,11 @@ def show_rag_agent():
     # Display chat messages
     for i, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
-            if isinstance(message["content"], dict):
-                # Enhanced response with structured data
-                st.markdown(message["content"].get("answer", ""))
-                
-                # Show confidence score
-                confidence = message["content"].get("confidence", 0)
-                st.metric("Confidence", f"{confidence:.2f}")
-                
-                # Enhanced feedback section for assistant messages
-                render_enhanced_feedback(i, message["role"])
-                
-                # Show drugs mentioned
-                drugs = message["content"].get("drugs_mentioned", [])
-                if drugs:
-                    with st.expander(f"Drugs Mentioned ({len(drugs)})"):
-                        for drug in drugs:
-                            st.write(f"**{drug.generic_name}** ({drug.company})")
-                            if drug.brand_name:
-                                st.write(f"Brand: {drug.brand_name}")
-                            if drug.drug_class:
-                                st.write(f"Class: {drug.drug_class}")
-                            if drug.indication:
-                                st.write(f"Indication: {drug.indication}")
-                            st.write("---")
-                
-                # Show clinical trials
-                trials = message["content"].get("trials_mentioned", [])
-                if trials:
-                    with st.expander(f"Clinical Trials ({len(trials)})"):
-                        for trial in trials:
-                            st.write(f"**{trial.title}**")
-                            if trial.nct_id:
-                                st.write(f"NCT: {trial.nct_id}")
-                            if trial.phase:
-                                st.write(f"Phase: {trial.phase}")
-                            if trial.status:
-                                st.write(f"Status: {trial.status}")
-                            st.write("---")
-                
-                # Show biopartnering insights
-                insights = message["content"].get("insights", [])
-                if insights:
-                    with st.expander(f"Biopartnering Insights ({len(insights)})"):
-                        for insight in insights:
-                            st.write(f"**{insight.title}**")
-                            st.write(f"Type: {insight.insight_type}")
-                            st.write(f"Description: {insight.description}")
-                            st.write(f"Confidence: {insight.confidence:.2f}")
-                            st.write("---")
-                
-                # Show citations
-                citations = message["content"].get("citations", [])
-                if citations:
-                    with st.expander("Citations"):
-                        for c in citations:
-                            st.write(f"[{c.label}] {c.title} - {c.url}")
-            else:
-                # Basic text response
-                st.markdown(message["content"])
-                
-                # Enhanced feedback section for assistant messages
+            # Simple text display for React agent responses
+            st.markdown(message["content"])
+            
+            # Enhanced feedback section for assistant messages
+            if message["role"] == "assistant":
                 render_enhanced_feedback(i, message["role"])
     
     # Chat input
@@ -807,41 +769,16 @@ def show_rag_agent():
         with st.chat_message("user"):
             st.markdown(prompt)
         
-        # Generate response
+        # Generate response using React Framework agent
         with st.chat_message("assistant"):
             try:
-                db = get_db()
-                
-                # Use enhanced basic RAG agent with Ollama
-                agent = create_enhanced_basic_rag_agent(provider)
-                result = agent.answer(db, prompt, k=5)
+                # Use React Framework agent
+                react_agent = ReactRAGAgent(settings)
+                result = react_agent.generate_response(prompt)
+                answer = result["answer"]
                 
                 # Display response
-                answer = result["answer"]
                 st.markdown(answer)
-                
-                # Show drugs if found
-                if result.get("drugs"):
-                    with st.expander(f"Drugs Found ({len(result['drugs'])})"):
-                        for drug in result["drugs"]:
-                            st.write(f"**{drug['generic_name']}** ({drug['brand_name']})")
-                            st.write(f"Company: {drug['company']}")
-                            st.write(f"Class: {drug['drug_class']}")
-                            st.write(f"Target: {drug['target']}")
-                            st.write(f"FDA Approved: {drug['fda_approved']}")
-                            if drug['approval_date']:
-                                st.write(f"Approval Date: {drug['approval_date']}")
-                            st.write("---")
-                
-                # Show clinical trials if found
-                if result.get("trials"):
-                    with st.expander(f"Clinical Trials ({len(result['trials'])})"):
-                        for trial in result["trials"]:
-                            st.write(f"**{trial['title']}**")
-                            st.write(f"NCT ID: {trial['nct_id']}")
-                            st.write(f"Status: {trial['status']}")
-                            st.write(f"Phase: {trial['phase']}")
-                            st.write("---")
                 
                 # Show citations if available
                 if result.get("citations"):
@@ -872,147 +809,338 @@ def show_rag_agent():
         
         # Display follow-up questions as clickable buttons
         cols = st.columns(2)
-        for i, question in enumerate(follow_up_questions[:4]):  # Show up to 4 questions
+        for i, question in enumerate(follow_up_questions[:6]):  # Show up to 6 questions
             col_idx = i % 2
             with cols[col_idx]:
                 if st.button(f"❓ {question}", key=f"followup_{i}", help="Click to ask this follow-up question"):
                     # Add the follow-up question as a new user message
                     st.session_state.messages.append({"role": "user", "content": question})
+                    
+                    # Process the follow-up question immediately
+                    with st.chat_message("user"):
+                        st.markdown(question)
+                    
+                    # Generate response using React Framework agent
+                    with st.chat_message("assistant"):
+                        try:
+                            # Use React Framework agent
+                            react_agent = ReactRAGAgent(settings)
+                            result = react_agent.generate_response(question)
+                            answer = result["answer"]
+                            
+                            # Display response
+                            st.markdown(answer)
+                            
+                            # Show citations if available
+                            if result.get("citations"):
+                                with st.expander("Citations"):
+                                    for c in result["citations"]:
+                                        st.write(f"[{c['label']}] {c['title']} - {c['url']}")
+                            
+                            st.session_state.messages.append({"role": "assistant", "content": answer})
+                            
+                        except Exception as e:
+                            st.error(f"Error generating response: {e}")
+                            logger.error(f"React agent error: {e}")
+                            st.session_state.messages.append({"role": "assistant", "content": f"Error: {e}"})
+                    
                     st.rerun()
         
         st.markdown("---")
     
-    # Feedback summary
-    if st.session_state.feedback:
-        st.subheader("📊 Feedback Summary")
+    # Database Feedback Analytics
+    
+    # Initialize feedback manager if not exists
+    if "feedback_manager" not in st.session_state:
+        st.session_state.feedback_manager = FeedbackManager()
+    
+    # Feedback metrics removed - no longer showing empty metrics
+
+    # Current Session Feedback section removed - no longer showing session metrics
+    
+
+
+def show_feedback_analytics():
+    """Show dedicated Feedback Analytics dashboard."""
+    st.header("🚀 Enhanced Feedback Analytics")
+    
+    st.markdown("""
+    **📊 Comprehensive Feedback Analysis Dashboard**
+    
+    This dashboard provides detailed insights into user feedback patterns, system performance, and actionable improvement recommendations.
+    """)
+    
+    # Initialize feedback storage
+    if "feedback" not in st.session_state:
+        st.session_state.feedback = {}
+    
+    if "detailed_feedback" not in st.session_state:
+        st.session_state.detailed_feedback = {}
+    
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+    
+    # Initialize feedback manager if not exists
+    if "feedback_manager" not in st.session_state:
+        st.session_state.feedback_manager = FeedbackManager()
+    
+    # Tabs for different analysis views
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Comprehensive Analysis", "📈 Trends & Patterns", "🎯 Improvement Plan", "💾 Data Export"])
+    
+    with tab1:
+        st.write("**Comprehensive analysis combining database persistence with advanced pattern recognition**")
         
-        ratings = list(st.session_state.feedback.values())
-        total_feedback = len(ratings)
-        average_rating = sum(ratings) / total_feedback if total_feedback > 0 else 0
-        
-        # Count ratings by category
-        excellent_count = sum(1 for r in ratings if r == 5)
-        very_good_count = sum(1 for r in ratings if r == 4)
-        good_count = sum(1 for r in ratings if r == 3)
-        fair_count = sum(1 for r in ratings if r == 2)
-        poor_count = sum(1 for r in ratings if r == 1)
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Total Responses", len(st.session_state.messages))
-        
-        with col2:
-            st.metric("Average Rating", f"{average_rating:.1f}/5")
-        
-        with col3:
-            st.metric("Excellent (5⭐)", excellent_count)
-        
-        with col4:
-            st.metric("Poor (1⭐)", poor_count)
-        
-        # Rating distribution
-        st.write("**Rating Distribution:**")
-        rating_dist_col1, rating_dist_col2 = st.columns([3, 1])
-        
-        with rating_dist_col1:
-            st.bar_chart({
-                "5⭐": excellent_count,
-                "4⭐": very_good_count,
-                "3⭐": good_count,
-                "2⭐": fair_count,
-                "1⭐": poor_count
-            })
-        
-        with rating_dist_col2:
-            st.write(f"**Quality Score:**")
-            if average_rating >= 4.5:
-                st.success(f"🌟 {average_rating:.1f}/5 - Excellent!")
-            elif average_rating >= 3.5:
-                st.info(f"✅ {average_rating:.1f}/5 - Good")
-            elif average_rating >= 2.5:
-                st.warning(f"⚠️ {average_rating:.1f}/5 - Fair")
+        try:
+            enhanced_analysis = get_enhanced_feedback_analysis(days=30)
+            
+            if enhanced_analysis.get("status") == "success":
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Total Records", enhanced_analysis.get("total_records", 0))
+                
+                with col2:
+                    avg_rating = enhanced_analysis.get("summary", {}).get("average_rating", 0)
+                    st.metric("Average Rating", f"{avg_rating}/5")
+                
+                with col3:
+                    system_health = enhanced_analysis.get("insights", {}).get("system_health", "Unknown")
+                    if system_health == "Excellent":
+                        st.success(f"🌟 {system_health}")
+                    elif system_health == "Good":
+                        st.info(f"✅ {system_health}")
+                    elif system_health == "Fair":
+                        st.warning(f"⚠️ {system_health}")
+                    else:
+                        st.error(f"❌ {system_health}")
+                
+                # Top issues with percentages
+                top_issues = enhanced_analysis.get("insights", {}).get("top_issues", [])
+                if top_issues:
+                    st.write("**🔍 Top Issues:**")
+                    for issue_data in top_issues:
+                        issue = issue_data.get("issue", "").replace("_", " ").title()
+                        percentage = issue_data.get("percentage", 0)
+                        st.write(f"• {issue}: {percentage:.1f}%")
+                
+                # Recommendations
+                recommendations = enhanced_analysis.get("recommendations", [])
+                if recommendations:
+                    st.write("**💡 Improvement Recommendations:**")
+                    for rec in recommendations[:3]:  # Show top 3
+                        priority_color = "🔴" if rec.get("priority") == "High" else "🟡"
+                        st.write(f"{priority_color} **{rec.get('issue')}** ({rec.get('percentage', 0):.1f}%)")
+                        st.write(f"   {rec.get('recommendation')}")
+                
+            elif enhanced_analysis.get("status") == "no_data":
+                st.info("No feedback data found yet. Start rating responses to build comprehensive analytics!")
             else:
-                st.error(f"❌ {average_rating:.1f}/5 - Needs Improvement")
+                st.error(f"Analysis error: {enhanced_analysis.get('message', 'Unknown error')}")
+                
+        except Exception as e:
+            st.error(f"Error loading enhanced analysis: {e}")
+    
+    with tab2:
+        st.write("**Trend analysis showing feedback patterns over time**")
         
-        # Download feedback data
-        if st.button("📥 Download Feedback Data"):
-            feedback_data = []
-            for i, msg in enumerate(st.session_state.messages):
-                if msg["role"] == "assistant" and i in st.session_state.feedback:
-                    rating = st.session_state.feedback[i]
-                    rating_text = {1: "Poor", 2: "Fair", 3: "Good", 4: "Very Good", 5: "Excellent"}[rating]
-                    
-                    feedback_data.append({
-                        "message_index": i,
-                        "question": st.session_state.messages[i-1]["content"] if i > 0 else "N/A",
-                        "response": msg["content"] if isinstance(msg["content"], str) else msg["content"].get("answer", ""),
-                        "rating": rating,
-                        "rating_text": rating_text,
-                        "timestamp": datetime.now().isoformat()
-                    })
+        try:
+            trends = get_feedback_trends(days=30)
             
-            if feedback_data:
-                import json
-                feedback_json = json.dumps(feedback_data, indent=2)
+            if trends.get("status") == "success":
+                st.write("**📅 Analysis Period:**", trends.get("analysis_period", "Unknown"))
+                
+                # Show trend summary
+                daily_trends = trends.get("daily_trends", {})
+                if daily_trends:
+                    st.write("**Daily Rating Trends:**")
+                    # Convert to a more readable format
+                    for date, metrics in daily_trends.items():
+                        if isinstance(metrics, dict) and 'mean' in str(metrics):
+                            st.write(f"• {date}: {metrics}")
+                
+                # Issue trends
+                issue_trends = trends.get("issue_trends", {})
+                if issue_trends:
+                    st.write("**Issue Trends Over Time:**")
+                    for issue, dates in issue_trends.items():
+                        issue_name = issue.replace("_", " ").title()
+                        total_reports = sum(dates.values())
+                        st.write(f"• {issue_name}: {total_reports} total reports")
+            else:
+                st.info("No trend data available yet. Collect more feedback to see patterns!")
+                
+        except Exception as e:
+            st.error(f"Error loading trends: {e}")
+    
+    with tab3:
+        st.write("**Actionable improvement plan based on feedback analysis**")
+        
+        try:
+            improvement_plan = get_rag_improvement_plan(days=30)
+            
+            if improvement_plan.get("status") == "success":
+                # System health
+                system_health = improvement_plan.get("system_health", "Unknown")
+                st.write(f"**🏥 System Health:** {system_health}")
+                
+                # Quick wins
+                quick_wins = improvement_plan.get("quick_wins", [])
+                if quick_wins:
+                    st.write("**⚡ Quick Wins (High Priority):**")
+                    for win in quick_wins:
+                        st.write(f"• **{win.get('issue')}** ({win.get('impact', 0):.1f}% impact)")
+                        st.write(f"  {win.get('action')}")
+                        st.write(f"  Timeline: {win.get('timeline', 'Unknown')}")
+                
+                # All action items
+                action_items = improvement_plan.get("action_items", [])
+                if action_items:
+                    st.write("**📋 Complete Action Plan:**")
+                    for item in action_items:
+                        priority_icon = "🔴" if item.get("priority") == "High" else "🟡"
+                        st.write(f"{priority_icon} **{item.get('issue')}** ({item.get('impact', 0):.1f}% impact)")
+                        st.write(f"   Action: {item.get('action')}")
+                        st.write(f"   Timeline: {item.get('timeline', 'Unknown')}")
+                        st.write("")
+                
+                # Data quality
+                data_quality = improvement_plan.get("data_quality", {})
+                st.write("**📊 Data Quality:**")
+                st.write(f"• Total Responses: {data_quality.get('total_responses', 0)}")
+                st.write(f"• Response Rate: {data_quality.get('response_rate', 'Unknown')}")
+                
+            else:
+                st.info("No improvement plan available yet. Collect more feedback to generate actionable insights!")
+                
+        except Exception as e:
+            st.error(f"Error loading improvement plan: {e}")
+    
+    with tab4:
+        st.write("**Export and download feedback data**")
+        
+        # Database Feedback Analytics
+        st.subheader("📊 Database Feedback Analytics")
+        
+        # Get feedback summary from database
+        try:
+            feedback_summary = st.session_state.feedback_manager.get_feedback_summary(days=30)
+            
+            if feedback_summary.get("total_feedback", 0) > 0:
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Total Feedback (30 days)", feedback_summary["total_feedback"])
+                
+                with col2:
+                    st.metric("Average Rating", f"{feedback_summary['average_rating']}/5")
+                
+                with col3:
+                    quality_score = feedback_summary.get("quality_score", "Unknown")
+                    if quality_score == "Excellent":
+                        st.success(f"🌟 {quality_score}")
+                    elif quality_score == "Good":
+                        st.info(f"✅ {quality_score}")
+                    elif quality_score == "Fair":
+                        st.warning(f"⚠️ {quality_score}")
+                    else:
+                        st.error(f"❌ {quality_score}")
+                
+                # Top issues
+                if feedback_summary.get("top_issues"):
+                    st.write("**🔍 Top Issues:**")
+                    for issue, count in feedback_summary["top_issues"][:3]:
+                        st.write(f"• {issue.replace('_', ' ').title()}: {count} reports")
+                
+                # Download database feedback
+                if st.button("📥 Download Database Feedback"):
+                    feedback_json = st.session_state.feedback_manager.export_feedback_to_json(days=30)
+                    st.download_button(
+                        "📥 Download Database Feedback JSON",
+                        data=feedback_json,
+                        file_name=f"database_feedback_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                        mime="application/json",
+                        help="Download all feedback data from database"
+                    )
+            else:
+                st.info("No feedback data found in database yet. Start rating responses to build analytics!")
+                
+        except Exception as e:
+            st.error(f"Error loading database feedback: {e}")
+            logger.error(f"Database feedback error: {e}")
+
+        # Session Feedback Summary
+        if st.session_state.feedback:
+            st.subheader("📊 Current Session Feedback")
+            
+            ratings = list(st.session_state.feedback.values())
+            total_feedback = len(ratings)
+            average_rating = sum(ratings) / total_feedback if total_feedback > 0 else 0
+            
+            # Count ratings by category
+            excellent_count = sum(1 for r in ratings if r == 5)
+            very_good_count = sum(1 for r in ratings if r == 4)
+            good_count = sum(1 for r in ratings if r == 3)
+            fair_count = sum(1 for r in ratings if r == 2)
+            poor_count = sum(1 for r in ratings if r == 1)
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("Total Responses", len(st.session_state.messages))
+            
+            with col2:
+                st.metric("Average Rating", f"{average_rating:.1f}/5")
+            
+            with col3:
+                st.metric("Excellent (5⭐)", excellent_count)
+            
+            with col4:
+                st.metric("Poor (1⭐)", poor_count)
+            
+            # Rating distribution
+            st.write("**Rating Distribution:**")
+            rating_dist_col1, rating_dist_col2 = st.columns([3, 1])
+            
+            with rating_dist_col1:
+                st.bar_chart({
+                    "5⭐": excellent_count,
+                    "4⭐": very_good_count,
+                    "3⭐": good_count,
+                    "2⭐": fair_count,
+                    "1⭐": poor_count
+                })
+            
+            with rating_dist_col2:
+                st.write("**Quick Stats:**")
+                st.write(f"• Total: {total_feedback}")
+                st.write(f"• Avg: {average_rating:.1f}")
+                st.write(f"• Best: {excellent_count}")
+                st.write(f"• Worst: {poor_count}")
+            
+            # Download session feedback
+            if st.button("📥 Download Session Feedback"):
+                session_feedback_data = {
+                    "session_id": st.session_state.get("session_id", "unknown"),
+                    "timestamp": datetime.now().isoformat(),
+                    "total_responses": len(st.session_state.messages),
+                    "total_feedback": total_feedback,
+                    "average_rating": average_rating,
+                    "rating_distribution": {
+                        "excellent": excellent_count,
+                        "very_good": very_good_count,
+                        "good": good_count,
+                        "fair": fair_count,
+                        "poor": poor_count
+                    },
+                    "detailed_feedback": st.session_state.feedback,
+                    "messages": st.session_state.messages
+                }
+                
+                feedback_json = json.dumps(session_feedback_data, indent=2)
                 st.download_button(
-                    "📥 Download Feedback JSON",
+                    "📥 Download Session Feedback JSON",
                     data=feedback_json,
-                    file_name=f"feedback_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                    mime="application/json",
-                    help="Download feedback data as JSON file"
-                )
-        
-        # Enhanced detailed feedback analysis
-        if "detailed_feedback" in st.session_state and st.session_state.detailed_feedback:
-            st.subheader("🔍 Detailed Feedback Analysis")
-            
-            # Analyze feedback patterns
-            feedback_analysis = analyze_feedback_patterns(st.session_state.detailed_feedback)
-            
-            if feedback_analysis["total_responses"] > 0:
-                # Show issue breakdown
-                st.write("**Common Issues Identified:**")
-                issue_percentages = feedback_analysis["issue_percentages"]
-                
-                if issue_percentages:
-                    issue_df = pd.DataFrame([
-                        {"Issue": issue.replace("_", " ").title(), "Percentage": f"{percentage:.1f}%", "Count": feedback_analysis["issue_counts"][issue]}
-                        for issue, percentage in sorted(issue_percentages.items(), key=lambda x: x[1], reverse=True)
-                    ])
-                    st.dataframe(issue_df, use_container_width=True)
-                    
-                    # Improvement recommendations
-                    recommendations = get_improvement_recommendations(feedback_analysis)
-                    
-                    if recommendations:
-                        st.subheader("💡 Improvement Recommendations")
-                        
-                        for rec in recommendations:
-                            priority_color = {
-                                "High": "🔴",
-                                "Medium": "🟡", 
-                                "Low": "🟢"
-                            }.get(rec["priority"], "⚪")
-                            
-                            st.write(f"{priority_color} **{rec['issue']}** ({rec['percentage']:.1f}% of responses)")
-                            st.write(f"   {rec['recommendation']}")
-                            st.write("")
-                else:
-                    st.info("No specific issues identified in detailed feedback.")
-            
-            # Download enhanced feedback data using the new module
-            if st.button("📥 Download Enhanced Feedback Data"):
-                enhanced_feedback_json = export_feedback_data(
-                    st.session_state.feedback,
-                    st.session_state.detailed_feedback,
-                    st.session_state.messages
-                )
-                
-                st.download_button(
-                    "📥 Download Enhanced Feedback JSON",
-                    data=enhanced_feedback_json,
-                    file_name=f"enhanced_feedback_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    file_name=f"session_feedback_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
                     mime="application/json",
                     help="Download detailed feedback data as JSON file"
                 )
@@ -1209,20 +1337,19 @@ def show_settings():
 
 
 def show_evaluation():
-    """Show evaluation page with RAGAS metrics using Ollama."""
-    st.header("📊 RAG Evaluation with Ollama")
+    """Show evaluation page with Agentic RAG self-evaluation metrics."""
+    st.header("🤖 Agentic RAG Self-Evaluation")
     
     st.markdown("""
-    Evaluate the performance of your RAG system using RAGAS metrics powered by Ollama.
-    This evaluation uses local models to assess faithfulness, answer relevancy, context precision, and context recall.
+    Evaluate the performance of your Agentic RAG system using its own built-in metrics.
+    This evaluation analyzes tool usage, data source attribution, and response quality.
     """)
     
     # Evaluation settings
     col1, col2 = st.columns(2)
     
     with col1:
-        use_ollama = st.checkbox("Use Ollama for Evaluation", value=True, help="Use local Ollama models instead of OpenAI")
-        ollama_model = st.selectbox("Ollama Model", ["llama3.1", "llama3.2"], index=0)
+        st.info("🤖 Using Agentic RAG Self-Evaluation")
     
     with col2:
         num_questions = st.slider("Number of Test Questions", 1, 10, 5)
@@ -1245,7 +1372,7 @@ def show_evaluation():
     # Get test questions
     if evaluation_type == "Predefined Questions":
         test_questions = predefined_questions[:num_questions]
-        st.subheader("Test Questions")
+        st.subheader("🧪 Test Questions")
         for i, q in enumerate(test_questions, 1):
             st.write(f"{i}. {q}")
     else:
@@ -1262,32 +1389,37 @@ def show_evaluation():
             st.error("Please provide at least one test question.")
             return
         
-        # Build provider and agent
+        # Build React agent for evaluation
         try:
-            provider = build_provider(settings.model_provider, settings.chat_model, settings.embed_model, settings.openai_api_key)
-            agent = create_enhanced_basic_rag_agent(provider)
+            # Use React Framework agent for evaluation
+            react_agent = ReactRAGAgent(settings)
             
             # Show progress
             progress_bar = st.progress(0)
             status_text = st.empty()
             
             # Run evaluation
-            with st.spinner("Running RAGAS evaluation with Ollama..."):
+            with st.spinner("Running React agent self-evaluation..."):
                 status_text.text("Initializing evaluation...")
                 progress_bar.progress(0.1)
                 
                 db = get_db()
                 
-                status_text.text("Evaluating RAG agent...")
+                status_text.text("Evaluating React agent...")
                 progress_bar.progress(0.3)
                 
-                # Run evaluation
-                scores = evaluate_rag_agent(
-                    agent, 
-                    db, 
-                    test_questions, 
-                    use_ollama=use_ollama
-                )
+                # Run evaluation using React agent self-evaluation
+                try:
+                    scores = evaluate_react_agent(
+                        agent=react_agent,
+                        db=db,
+                        test_questions=test_questions
+                    )
+                except Exception as e:
+                    st.error(f"❌ Evaluation failed: {e}")
+                    import traceback
+                    st.error(traceback.format_exc())
+                    return
                 
                 progress_bar.progress(1.0)
                 status_text.text("Evaluation complete!")
@@ -1295,61 +1427,104 @@ def show_evaluation():
                 db.close()
             
             # Display results
-            st.subheader("📈 Evaluation Results")
+            st.subheader("📈 Agentic RAG Evaluation Results")
             
-            # Create metrics display
+            # Check if evaluation was successful
+            if 'evaluation_scores' not in scores and 'ragas_compatible_scores' not in scores:
+                st.error("❌ Evaluation failed. The Agentic RAG evaluation system encountered an error.")
+                st.write("**Debug Info:**")
+                st.json(scores)
+                return
+            
+            # Use the available scores (prefer evaluation_scores, fallback to ragas_compatible_scores)
+            display_scores = scores.get('evaluation_scores', scores.get('ragas_compatible_scores', {}))
+            
+            if not display_scores:
+                st.error("❌ No evaluation scores available.")
+                return
+            
+            # Display React agent evaluation scores
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
                 st.metric(
-                    "Faithfulness", 
-                    f"{scores.get('faithfulness', 0):.3f}",
-                    help="Measures how grounded the generated answer is in the given contexts"
+                    "Data Source Attribution", 
+                    f"{display_scores['faithfulness']:.3f}",
+                    help="Measures confidence in data source attribution and honesty"
                 )
             
             with col2:
                 st.metric(
-                    "Answer Relevancy", 
-                    f"{scores.get('answer_relevancy', 0):.3f}",
-                    help="Measures how relevant the generated answer is to the given question"
+                    "Semantic Relevance", 
+                    f"{display_scores['answer_relevancy']:.3f}",
+                    help="Measures relevance scores from semantic search"
                 )
             
             with col3:
                 st.metric(
-                    "Context Precision", 
-                    f"{scores.get('context_precision', 0):.3f}",
-                    help="Measures how precise the retrieved contexts are"
+                    "Cross-Source Consistency", 
+                    f"{scores['evaluation_scores']['context_precision']:.3f}",
+                    help="Measures consistency across data sources"
                 )
             
             with col4:
                 st.metric(
-                    "Context Recall", 
-                    f"{scores.get('context_recall', 0):.3f}",
-                    help="Measures how well the retrieved contexts cover the answer"
+                    "Success Rate", 
+                    f"{scores['evaluation_scores']['context_recall']:.3f}",
+                    help="Measures success rate of question answering"
                 )
             
+            # Agentic RAG specific metrics
+            st.subheader("🤖 Agentic RAG Metrics")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Average Relevance", f"{scores['overall_metrics']['average_relevance']:.3f}")
+                st.metric("Average Confidence", f"{scores['overall_metrics']['average_confidence']:.3f}")
+            
+            with col2:
+                st.metric("Average Consistency", f"{scores['overall_metrics']['average_consistency']:.3f}")
+                st.metric("Success Rate", f"{scores['overall_metrics']['success_rate']:.3f}")
+            
+            with col3:
+                st.metric("Questions Evaluated", scores['questions_evaluated'])
+                st.metric("Tools Used", len(scores['tool_usage_stats']))
+            
+            # Tool usage breakdown
+            if scores['tool_usage_stats']:
+                st.subheader("🛠️ Tool Usage Statistics")
+                tool_df = pd.DataFrame(list(scores['tool_usage_stats'].items()), columns=['Tool', 'Usage Count'])
+                st.dataframe(tool_df, use_container_width=True)
+            
+            # Data source breakdown
+            if scores['data_source_stats']:
+                st.subheader("📊 Data Source Statistics")
+                source_df = pd.DataFrame(list(scores['data_source_stats'].items()), columns=['Data Source', 'Usage Count'])
+                st.dataframe(source_df, use_container_width=True)
+            
             # Overall score
-            overall_score = sum(scores.values()) / len(scores) if scores else 0
-            st.metric("Overall Score", f"{overall_score:.3f}")
+            overall_score = sum(scores['evaluation_scores'].values()) / len(scores['evaluation_scores'])
+            st.metric("Overall Agentic RAG Score", f"{overall_score:.3f}")
             
             # Interpretation
             st.subheader("📝 Interpretation")
             
             if overall_score >= 0.8:
-                st.success("🎉 Excellent performance! Your RAG system is working very well.")
+                st.success("🎉 Excellent performance! Your React agent is working very well.")
             elif overall_score >= 0.6:
-                st.info("✅ Good performance. Consider fine-tuning for better results.")
+                st.info("✅ Good performance. Consider fine-tuning tools for better results.")
             elif overall_score >= 0.4:
-                st.warning("⚠️ Moderate performance. There's room for improvement.")
+                st.warning("⚠️ Moderate performance. There's room for improvement in tool usage.")
             else:
-                st.error("❌ Poor performance. The system needs significant improvements.")
+                st.error("❌ Poor performance. The React agent needs significant improvements.")
             
             # Detailed breakdown
             with st.expander("📊 Detailed Metrics"):
-                st.write("**Faithfulness (0-1):** How well the answer is grounded in the provided contexts")
-                st.write("**Answer Relevancy (0-1):** How relevant the answer is to the question")
-                st.write("**Context Precision (0-1):** How precise the retrieved contexts are")
-                st.write("**Context Recall (0-1):** How well contexts cover the answer")
+                st.write("**Data Source Attribution (0-1):** How well the agent indicates data sources")
+                st.write("**Semantic Relevance (0-1):** Relevance scores from semantic search")
+                st.write("**Cross-Source Consistency (0-1):** Consistency across data sources")
+                st.write("**Success Rate (0-1):** Percentage of questions answered successfully")
                 
                 # Show raw scores
                 st.write("\n**Raw Scores:**")
@@ -1377,18 +1552,192 @@ def show_evaluation():
             st.error(traceback.format_exc())
     
     # Evaluation info
-    st.subheader("ℹ️ About RAGAS Evaluation")
+    st.subheader("ℹ️ About Agentic RAG Self-Evaluation")
     st.markdown("""
-    **RAGAS (RAG Assessment)** is a framework for evaluating RAG systems with the following metrics:
+    **Agentic RAG Self-Evaluation** uses the agent's own built-in metrics to assess performance:
     
-    - **Faithfulness**: Measures how grounded the generated answer is in the given contexts
-    - **Answer Relevancy**: Measures how relevant the generated answer is to the given question  
-    - **Context Precision**: Measures how precise the retrieved contexts are
-    - **Context Recall**: Measures how well the retrieved contexts cover the answer
+    - **Faithfulness**: Measures confidence in data source attribution and honesty
+    - **Answer Relevancy**: Measures relevance scores from semantic search results
+    - **Context Precision**: Measures consistency across multiple data sources  
+    - **Context Recall**: Measures success rate of question answering
     
-    **Using Ollama**: This evaluation uses local Ollama models instead of requiring OpenAI API keys,
-    making it more cost-effective and privacy-friendly for evaluation purposes.
+    **Additional Agentic RAG Metrics:**
+    - Tool usage statistics and effectiveness
+    - Data source attribution tracking
+    - Cross-validation confidence scores
+    - Answer quality analysis
+    
+    **Benefits over External Evaluation:**
+    - Uses agent's own relevance and confidence scores
+    - Tracks tool usage and data source attribution
+    - Provides detailed analytics specific to our React framework
+    - No external dependencies or complex setup required
     """)
+
+
+def show_business_analysis():
+    """Show password-protected business analysis dashboard."""
+    
+    # Password protection
+    if "business_analysis_authenticated" not in st.session_state:
+        st.session_state.business_analysis_authenticated = False
+    
+    if not st.session_state.business_analysis_authenticated:
+        st.header("🔒 Business Analysis Dashboard")
+        st.markdown("This dashboard contains sensitive business intelligence and requires authentication.")
+        
+        # Password input
+        password = st.text_input("Enter password:", type="password", help="Contact administrator for access")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔓 Access Dashboard"):
+                if password == "biopartner2024":  # Change this to your desired password
+                    st.session_state.business_analysis_authenticated = True
+                    st.rerun()
+                else:
+                    st.error("❌ Incorrect password. Please try again.")
+        
+        with col2:
+            if st.button("🔒 Lock Dashboard"):
+                st.session_state.business_analysis_authenticated = False
+                st.rerun()
+        
+        # Security notice
+        st.info("🔐 **Security Notice:** This dashboard contains confidential business data. Access is restricted to authorized personnel only.")
+        
+        return
+    
+    # Show logout option
+    if st.button("🔒 Logout", help="Lock the dashboard"):
+        st.session_state.business_analysis_authenticated = False
+        st.rerun()
+    
+    # Show the actual dashboard
+    main_ticket_analysis_dashboard()
+
+
+def show_ground_truth():
+    """Show Ground Truth data page."""
+    st.header("🏆 Ground Truth Data")
+    st.markdown("Curated, validated business data with context and priority scoring.")
+    
+    try:
+        # Load ground truth data from Excel file
+        gt_loader = GroundTruthLoader()
+        
+        if gt_loader._data.empty:
+            st.error("No Ground Truth data available. Please check the Excel file.")
+            return
+        
+        # Display data overview
+        st.subheader("📊 Data Overview")
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Total Records", len(gt_loader._data))
+        
+        with col2:
+            unique_companies = gt_loader._data['Partner'].nunique() if 'Partner' in gt_loader._data.columns else 0
+            st.metric("Unique Companies", unique_companies)
+        
+        with col3:
+            unique_drugs = gt_loader._data['Generic name'].nunique() if 'Generic name' in gt_loader._data.columns else 0
+            st.metric("Unique Drugs", unique_drugs)
+        
+        with col4:
+            unique_targets = gt_loader._data['Target'].nunique() if 'Target' in gt_loader._data.columns else 0
+            st.metric("Unique Targets", unique_targets)
+        
+        # Data table with filters
+        st.subheader("📋 Ground Truth Data")
+        
+        # Create 6 filter columns
+        filter_col1, filter_col2, filter_col3, filter_col4, filter_col5, filter_col6 = st.columns(6)
+        
+        with filter_col1:
+            company_options = ["All"] + sorted([str(x) for x in gt_loader._data['Partner'].unique() if pd.notna(x)])
+            company_filter = st.selectbox("Partner", company_options, key="company_filter")
+        
+        with filter_col2:
+            drug_options = ["All"] + sorted([str(x) for x in gt_loader._data['Generic name'].unique() if pd.notna(x)])
+            drug_name_filter = st.selectbox("Drug Name", drug_options, key="drug_name_filter")
+        
+        with filter_col3:
+            indication_options = ["All"] + sorted([str(x) for x in gt_loader._data['Indication Approved'].unique() if pd.notna(x)])
+            indication_filter = st.selectbox("Indication", indication_options, key="indication_filter")
+        
+        with filter_col4:
+            target_options = ["All"] + sorted([str(x) for x in gt_loader._data['Target'].unique() if pd.notna(x)])
+            target_filter = st.selectbox("Target", target_options, key="target_filter")
+        
+        with filter_col5:
+            mechanism_options = ["All"] + sorted([str(x) for x in gt_loader._data['Mechanism'].unique() if pd.notna(x)])
+            mechanism_filter = st.selectbox("Mechanism", mechanism_options, key="mechanism_filter")
+        
+        with filter_col6:
+            drug_class_options = ["All"] + sorted([str(x) for x in gt_loader._data['Drug Class'].unique() if pd.notna(x)])
+            drug_class_filter = st.selectbox("Drug Class", drug_class_options, key="drug_class_filter")
+        
+        # Apply filters to the ground truth data
+        filtered_data = gt_loader._data.copy()
+        
+        if company_filter != "All":
+            filtered_data = filtered_data[filtered_data['Partner'] == company_filter]
+        
+        if drug_name_filter != "All":
+            filtered_data = filtered_data[filtered_data['Generic name'] == drug_name_filter]
+        
+        if indication_filter != "All":
+            filtered_data = filtered_data[filtered_data['Indication Approved'] == indication_filter]
+        
+        if target_filter != "All":
+            filtered_data = filtered_data[filtered_data['Target'] == target_filter]
+        
+        if mechanism_filter != "All":
+            filtered_data = filtered_data[filtered_data['Mechanism'] == mechanism_filter]
+        
+        if drug_class_filter != "All":
+            filtered_data = filtered_data[filtered_data['Drug Class'] == drug_class_filter]
+        
+        # Display the filtered table (excluding Tickets column)
+        display_data = filtered_data.drop(columns=['Tickets'], errors='ignore')
+        st.dataframe(
+            display_data,
+            use_container_width=True,
+            height=600
+        )
+        
+        # Show summary
+        st.write(f"Showing {len(filtered_data)} of {len(gt_loader._data)} total records")
+        
+        # Export functionality
+        st.subheader("📤 Export Options")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("Export Filtered Data to CSV"):
+                csv = filtered_data.to_csv(index=False)
+                st.download_button(
+                    label="Download Filtered Ground Truth CSV",
+                    data=csv,
+                    file_name="ground_truth_filtered.csv",
+                    mime="text/csv"
+                )
+        
+        with col2:
+            if st.button("Export All Data to CSV"):
+                csv = gt_loader._data.to_csv(index=False)
+                st.download_button(
+                    label="Download All Ground Truth CSV",
+                    data=csv,
+                    file_name="ground_truth_all.csv",
+                    mime="text/csv"
+                )
+    
+    except Exception as e:
+        st.error(f"Error loading Ground Truth data: {e}")
+        logger.error(f"Ground Truth dashboard error: {e}")
 
 
 if __name__ == "__main__":

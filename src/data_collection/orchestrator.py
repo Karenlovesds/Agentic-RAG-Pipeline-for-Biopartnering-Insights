@@ -97,4 +97,22 @@ class DataCollectionOrchestrator:
             logger.error(f"❌ Error generating CSV files: {e}")
             results["csv_generation"] = {"error": str(e), "success": False}
         
+        # Populate vector database after data collection
+        try:
+            from src.processing.pipeline import populate_vector_database
+            
+            logger.info("🧠 Populating vector database for React RAG agent...")
+            vector_db_results = populate_vector_database()
+            
+            if vector_db_results.get("status") == "success":
+                logger.info(f"✅ Vector database populated successfully with {vector_db_results.get('final_chunks', 0)} chunks")
+                results["vector_database"] = vector_db_results
+            else:
+                logger.error(f"❌ Vector database population failed: {vector_db_results.get('error', 'Unknown error')}")
+                results["vector_database"] = vector_db_results
+                
+        except Exception as e:
+            logger.error(f"❌ Error populating vector database: {e}")
+            results["vector_database"] = {"error": str(e), "status": "error"}
+        
         return results

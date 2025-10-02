@@ -561,6 +561,50 @@ def generate_drug_summary(db: Session) -> str:
         return f"Error generating summary: {e}"
 
 
+def populate_vector_database() -> dict:
+    """Populate vector database for React RAG agent semantic search."""
+    try:
+        logger.info("Starting vector database population...")
+        
+        from src.rag.vector_db_manager import VectorDBManager
+        
+        # Initialize vector database manager
+        vector_db = VectorDBManager()
+        
+        # Check current collection stats
+        stats = vector_db.get_collection_stats()
+        logger.info(f"Current collection stats: {stats}")
+        
+        # Reset collection if it has data
+        if stats.get("total_chunks", 0) > 0:
+            logger.info("Collection has existing data. Resetting...")
+            vector_db.reset_collection()
+        
+        # Populate database
+        vector_db.populate_database()
+        
+        # Get final stats
+        final_stats = vector_db.get_collection_stats()
+        logger.info(f"Final collection stats: {final_stats}")
+        
+        logger.info("Vector database population completed successfully!")
+        
+        return {
+            "status": "success",
+            "initial_chunks": stats.get("total_chunks", 0),
+            "final_chunks": final_stats.get("total_chunks", 0),
+            "embedding_model": final_stats.get("embedding_model", ""),
+            "collection_name": final_stats.get("collection_name", "")
+        }
+        
+    except Exception as e:
+        logger.error(f"Error populating vector database: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+
 def run_processing(db: Session) -> dict:
     logger.info("Processing pipeline start")
     created_companies = ensure_companies(db)
@@ -583,6 +627,9 @@ def run_processing(db: Session) -> dict:
     # Auto-generate CSV files
     csv_results = generate_csv_exports(db)
     
+    # Populate vector database for React RAG agent
+    vector_db_results = populate_vector_database()
+    
     logger.info("Processing pipeline done")
     return {
         "companies_created": created_companies,
@@ -594,6 +641,7 @@ def run_processing(db: Session) -> dict:
         "trials_linked_to_drugs": trials_linked_to_drugs,
         "deduplication": deduplication_results,
         "csv_generated": csv_results,
+        "vector_database": vector_db_results,
     }
 
 
