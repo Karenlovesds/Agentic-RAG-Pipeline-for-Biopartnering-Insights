@@ -76,7 +76,7 @@ is converted to vector embeddings and stored in ChromaDB for semantic search. Th
 - Clear attribution prevents misinformation
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from loguru import logger
 import sys
 from pathlib import Path
@@ -105,7 +105,7 @@ class ReactRAGAgent:
         # Initialize Ollama LLM for React agent
         self.llm = Ollama(
             model="llama3.1",
-            request_timeout=300.0,
+            request_timeout=60.0,  # Reduced from 300 to 60 seconds
             temperature=0.0  # Set to 0 for maximum consistency
         )
         
@@ -117,493 +117,596 @@ class ReactRAGAgent:
         
         logger.info("React RAG Agent with Vector Database initialized successfully")
     
+    def _format_search_result(self, result: Dict[str, Any], index: int) -> str:
+        """Format a single search result based on its source."""
+        metadata = result["metadata"]
+        similarity_score = result["similarity_score"]
+        
+        # Define formatting templates for each source type
+        source_templates = {
+            "ground_truth": (
+                f"{index}. 🏆 GROUND TRUTH: {metadata['generic_name']} ({metadata['brand_name']}) "
+                f"- Company: {metadata['company']} - Target: {metadata['target']} "
+                f"- Mechanism: {metadata['mechanism']} - Ticket: {metadata['ticket']} "
+            ),
+            "database": (
+                f"{index}. 📊 DATABASE: {metadata['generic_name']} ({metadata['brand_name']}) "
+                f"- Company: {metadata['company']} - Mechanism: {metadata['mechanism']} "
+                f"- Drug Class: {metadata['drug_class']} (Relevance: {similarity_score:.3f})"
+            ),
+            "clinical_trial": (
+                f"{index}. 🧪 CLINICAL TRIAL: {metadata['nct_id']} - Phase: {metadata['phase']} "
+                f"- Status: {metadata['status']} (Relevance: {similarity_score:.3f})"
+            ),
+            "fda": (
+                f"{index}. 🏥 FDA: {metadata['generic_name']} ({metadata['brand_name']}) "
+                f"- Company: {metadata['company']} - Approval Date: {metadata.get('fda_approval_date', 'N/A')} "
+                f"- Targets: {metadata.get('target', 'N/A')} (Relevance: {similarity_score:.3f})"
+            ),
+            "drugs_com": (
+                f"{index}. 💊 DRUGS.COM: {metadata['title']} "
+                f"- Source: {metadata.get('url', 'N/A')} (Relevance: {similarity_score:.3f})"
+            )
+        }
+        
+        # Get template for source type or use default
+        source = metadata["source"]
+        if source in source_templates:
+            return source_templates[source]
+        else:
+            return (
+                f"{index}. {source.upper()}: {metadata.get('generic_name', metadata.get('title', 'Unknown'))} "
+                f"- Company: {metadata.get('company', 'N/A')} (Relevance: {similarity_score:.3f})"
+            )
+    
+    def _generate_search_summary(self, results: List[Dict[str, Any]], query: str) -> str:
+        """Generate summary for search results."""
+        summary = f"\n\nSUMMARY: Found {len(results)} results for '{query}'"
+        
+        sources_found = set(r["metadata"]["source"] for r in results)
+        if "ground_truth" in sources_found:
+            summary += " - Includes Ground Truth data"
+        if "database" in sources_found:
+            summary += " - Includes Database data"
+        if "clinical_trial" in sources_found:
+            summary += " - Includes Clinical Trial data"
+        
+        return summary
+    
+    def _extract_ground_truth_data(self, results: List[Dict[str, Any]]) -> Tuple[List[str], List[str], List[str]]:
+        """Extract drugs, companies, and targets from ground truth results."""
+        gt_drugs = []
+        gt_companies = []
+        gt_targets = []
+        
+        for result in results:
+            metadata = result["metadata"]
+            if metadata.get("source") == "ground_truth":
+                if metadata.get("generic_name"):
+                    gt_drugs.append(metadata["generic_name"])
+                if metadata.get("company"):
+                    gt_companies.append(metadata["company"])
+                if metadata.get("target"):
+                    gt_targets.append(metadata["target"])
+        
+        return gt_drugs, gt_companies, gt_targets
+    
+    def _extract_database_data(self, results: List[Dict[str, Any]]) -> Tuple[List[str], List[str]]:
+        """Extract drugs and companies from database results."""
+        db_drugs = []
+        db_companies = []
+        
+        for result in results:
+            metadata = result["metadata"]
+            if metadata.get("source") == "database":
+                if metadata.get("generic_name"):
+                    db_drugs.append(metadata["generic_name"])
+                if metadata.get("company"):
+                    db_companies.append(metadata["company"])
+        
+        return db_drugs, db_companies
+    
+    def _extract_clinical_trial_data(self, results: List[Dict[str, Any]]) -> Tuple[List[str], List[str]]:
+        """Extract phases and statuses from clinical trial results."""
+        trial_phases = []
+        trial_statuses = []
+        
+        for result in results:
+            metadata = result["metadata"]
+            if metadata.get("source") == "clinical_trial":
+                if metadata.get("phase"):
+                    trial_phases.append(metadata["phase"])
+                if metadata.get("status"):
+                    trial_statuses.append(metadata["status"])
+        
+        return trial_phases, trial_statuses
+    
+    def _build_consistency_report(self, gt_drugs: List[str], gt_companies: List[str], gt_targets: List[str],
+                                 db_drugs: List[str], db_companies: List[str], 
+                                 trial_phases: List[str], query: str) -> str:
+        """Build the consistency analysis report."""
+        validation_report = f"Cross-Validation Analysis for '{query}':\n\n"
+        validation_report += "🔍 Source Consistency Analysis:\n"
+        
+        # Drug consistency
+        common_drugs = set(gt_drugs) & set(db_drugs)
+        if common_drugs:
+            validation_report += f"  ✅ Drug Consistency: {len(common_drugs)} drugs found in both Ground Truth and Database\n"
+            validation_report += f"     Common drugs: {', '.join(list(common_drugs)[:3])}\n"
+        else:
+            validation_report += f"  ⚠️ Drug Consistency: No common drugs between Ground Truth and Database\n"
+        
+        # Company consistency
+        common_companies = set(gt_companies) & set(db_companies)
+        if common_companies:
+            validation_report += f"  ✅ Company Consistency: {len(common_companies)} companies found in both sources\n"
+            validation_report += f"     Common companies: {', '.join(list(common_companies)[:3])}\n"
+        else:
+            validation_report += f"  ⚠️ Company Consistency: No common companies between sources\n"
+        
+        # Target validation
+        if gt_targets:
+            unique_targets = list(set(gt_targets))
+            validation_report += f"  🎯 Target Information: {len(unique_targets)} unique targets in Ground Truth\n"
+            validation_report += f"     Targets: {', '.join(unique_targets[:3])}\n"
+        
+        # Clinical trial validation
+        if trial_phases:
+            unique_phases = list(set(trial_phases))
+            validation_report += f"  🧪 Clinical Trial Phases: {len(unique_phases)} different phases\n"
+            validation_report += f"     Phases: {', '.join(unique_phases)}\n"
+        
+        return validation_report
+    
+    def _calculate_confidence_score(self, common_drugs: set, common_companies: set, 
+                                   gt_targets: List[str], trial_phases: List[str]) -> Tuple[float, List[str]]:
+        """Calculate confidence score and factors."""
+        confidence_factors = []
+        
+        if common_drugs:
+            confidence_factors.append("Drug consistency across sources")
+        if common_companies:
+            confidence_factors.append("Company consistency across sources")
+        if gt_targets:
+            confidence_factors.append("Target information available")
+        if trial_phases:
+            confidence_factors.append("Clinical trial data available")
+        
+        confidence_score = len(confidence_factors) / 4.0  # Normalize to 0-1
+        return confidence_score, confidence_factors
+    
+    def _group_results_by_source_and_company(self, results: List[Dict[str, Any]]) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
+        """Group search results by source and company, removing duplicates."""
+        grouped_results = {}
+        seen_drugs = set()
+        
+        for result in results:
+            metadata = result["metadata"]
+            source = metadata.get("source", "unknown")
+            company = metadata.get("company", "Unknown")
+            drug_name = metadata.get("generic_name", "")
+            
+            # Create unique key for deduplication
+            drug_key = f"{drug_name}_{company}".lower()
+            if drug_key in seen_drugs:
+                continue
+            seen_drugs.add(drug_key)
+            
+            if source not in grouped_results:
+                grouped_results[source] = {}
+            if company not in grouped_results[source]:
+                grouped_results[source][company] = []
+            
+            grouped_results[source][company].append(result)
+        
+        return grouped_results
+    
+    def _format_aggregated_results(self, grouped_results: Dict[str, Dict[str, List[Dict[str, Any]]]]) -> List[str]:
+        """Format grouped results into readable text."""
+        formatted_results = []
+        
+        for source, companies in grouped_results.items():
+            source_name = "Ground Truth" if source == "ground_truth" else "Database"
+            formatted_results.append(f"\n📊 {source_name} Results:")
+            
+            for company, drugs in companies.items():
+                formatted_results.append(f"\n🏢 {company}:")
+                for drug in drugs:
+                    metadata = drug["metadata"]
+                    similarity_score = drug["similarity_score"]
+                    
+                    drug_text = f"  • {metadata.get('generic_name', 'Unknown')}"
+                    if metadata.get('brand_name'):
+                        drug_text += f" ({metadata.get('brand_name')})"
+                    if metadata.get('target'):
+                        drug_text += f" - Target: {metadata.get('target')}"
+                    if metadata.get('mechanism'):
+                        drug_text += f" - Mechanism: {metadata.get('mechanism')}"
+                    
+                    formatted_results.append(drug_text)
+        
+        return formatted_results
+    
+    def _determine_search_query(self, question: str) -> str:
+        """Determine the best search query based on question type."""
+        question_lower = question.lower()
+        
+        # Define query patterns for different question types
+        query_patterns = {
+            'company': lambda q: self._get_company_query(q),
+            'companies': lambda q: self._get_company_query(q),
+            'drug': lambda q: f"{q} drugs",
+            'drugs': lambda q: f"{q} drugs"
+        }
+        
+        # Find matching pattern and generate query
+        for keyword, query_func in query_patterns.items():
+            if keyword in question_lower:
+                return query_func(question)
+        
+        # Default fallback
+        return question
+    
+    def _get_company_query(self, question: str) -> str:
+        """Generate company-specific search query."""
+        target = self._extract_target_from_question(question)
+        if target:
+            return f"{target} companies drugs"
+        else:
+            return f"{question} companies"
+    
+    def _group_results_by_company(self, results: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+        """Group search results by company."""
+        companies = {}
+        
+        for result in results:
+            metadata = result["metadata"]
+            company = metadata.get("company", "Unknown")
+            generic_name = metadata.get("generic_name", "").strip()
+            brand_name = metadata.get("brand_name", "").strip()
+            
+            # Skip entries with empty drug names
+            if not generic_name and not brand_name:
+                continue
+            
+            # Use brand name if generic name is empty, or vice versa
+            drug_name = generic_name if generic_name else brand_name
+            
+            if company not in companies:
+                companies[company] = []
+            
+            companies[company].append({
+                "drug": drug_name,
+                "brand": brand_name if generic_name else "",  # Only show brand if we have generic
+                "target": metadata.get("target", ""),
+                "mechanism": metadata.get("mechanism", ""),
+                "ticket": metadata.get("ticket", ""),
+                "relevance": result["similarity_score"]
+            })
+        
+        return companies
+    
+    def _format_fallback_answer(self, companies: Dict[str, List[Dict[str, Any]]]) -> str:
+        """Format the fallback search answer in a human-readable way."""
+        if not companies:
+            return None
+        
+        answer_parts = []
+        
+        # Add opening statement
+        answer_parts.append(self._create_fallback_opening(len(companies)))
+        answer_parts.append("")  # Empty line for spacing
+        
+        # Format each company
+        for company, drugs in companies.items():
+            answer_parts.append(f"🏢 **{company}**")
+            answer_parts.extend(self._format_company_drugs(drugs))
+            answer_parts.append("")  # Empty line between companies
+        
+        # Add data source
+        answer_parts.append("📊 *Data source: Internal biopartnering database*")
+        
+        return "\n".join(answer_parts)
+    
+    def _create_fallback_opening(self, company_count: int) -> str:
+        """Create the opening statement for fallback answer."""
+        if company_count == 1:
+            return f"I found **{company_count} company** working on this target:"
+        else:
+            return f"I found **{company_count} companies** working on this target:"
+    
+    def _format_company_drugs(self, drugs: List[Dict[str, Any]]) -> List[str]:
+        """Format drugs for a company, grouped by target."""
+        # Group drugs by target to avoid repetition
+        drugs_by_target = {}
+        for drug in drugs:
+            target = drug.get('target', 'Unknown target')
+            if target not in drugs_by_target:
+                drugs_by_target[target] = []
+            drugs_by_target[target].append(drug)
+        
+        formatted_lines = []
+        # Format each target group
+        for target, target_drugs in drugs_by_target.items():
+            formatted_lines.append(self._format_target_drug_group(target, target_drugs))
+        
+        return formatted_lines
+    
+    def _format_target_drug_group(self, target: str, target_drugs: List[Dict[str, Any]]) -> str:
+        """Format a group of drugs targeting the same target."""
+        if len(target_drugs) == 1:
+            drug = target_drugs[0]
+            drug_name = drug.get('drug', 'Unknown drug')
+            brand = drug.get('brand', '')
+            
+            if brand:
+                return f"  • **{drug_name}** ({brand}) - Targets {target}"
+            else:
+                return f"  • **{drug_name}** - Targets {target}"
+        else:
+            # Multiple drugs for same target
+            drug_names = []
+            for drug in target_drugs:
+                drug_name = drug.get('drug', 'Unknown drug')
+                brand = drug.get('brand', '')
+                if brand:
+                    drug_names.append(f"{drug_name} ({brand})")
+                else:
+                    drug_names.append(drug_name)
+            
+            drugs_list = ", ".join(drug_names)
+            return f"  • **{drugs_list}** - All target {target}"
+    
+    def _get_target_patterns(self) -> List[str]:
+        """Get regex patterns for target extraction."""
+        return [
+            r'\b([a-z]{2,}[1-9])\b',  # Pattern like HER2, TROP2, CD19, EGFR, BRAF, KRAS, etc.
+            r'\b([a-z]+-?[a-z]+[1-9]?)\b',  # Pattern like PD-L1, VEGF-A, etc.
+            r'\b([a-z]+\s+receptor\s+\d+)\b',  # Pattern like "tropomyosin receptor 2"
+            r'\b([a-z]+\s+antigen\s+\d+)\b',  # Pattern like "tumor antigen 2"
+            r'\b([a-z]+\s+factor\s+\d+)\b',  # Pattern like "growth factor 2"
+        ]
+    
+    def _get_common_words(self) -> set:
+        """Get common words to filter out from target extraction."""
+        return {'companies', 'company', 'target', 'targets', 'drugs', 'drug', 'how', 'many', 'with', 'competitive', 'landscape', 'phase', 'development', 'indication'}
+    
+    def _get_stop_words(self) -> set:
+        """Get stop words for target extraction."""
+        return {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'how', 'many', 'what', 'which', 'who', 'where', 'when', 'why'}
+    
+    def _extract_targets_by_pattern(self, question_lower: str) -> Optional[str]:
+        """Extract target using regex patterns."""
+        import re
+        
+        target_patterns = self._get_target_patterns()
+        common_words = self._get_common_words()
+        
+        for pattern in target_patterns:
+            matches = re.findall(pattern, question_lower)
+            if matches:
+                # Filter out common non-target words and return the best match
+                filtered_matches = []
+                for match in matches:
+                    # Skip common words that aren't targets
+                    if match.lower() not in common_words:
+                        filtered_matches.append(match)
+                
+                if filtered_matches:
+                    # Return the longest match (most specific)
+                    best_match = max(filtered_matches, key=len)
+                    # Convert to uppercase for consistency
+                    return best_match.upper()
+        
+        return None
+    
+    def _extract_targets_by_capitalization(self, question: str) -> Optional[str]:
+        """Extract target using capitalization patterns."""
+        words = question.split()
+        potential_targets = []
+        
+        # Dynamic stop words detection (no hardcoded list)
+        common_words = self._get_stop_words()
+        question_words = {word.lower() for word in words}
+        
+        for word in words:
+            # Look for words that are all caps or start with capital letter
+            if (word.isupper() and len(word) >= 2) or (word[0].isupper() and len(word) >= 3):
+                # Skip common words dynamically
+                if word.lower() not in common_words and word.lower() not in question_words:
+                    potential_targets.append(word.upper())
+        
+        if potential_targets:
+            return potential_targets[0]
+        
+        return None
+    
     def _create_tools(self) -> List[FunctionTool]:
         """Create tools for the React agent."""
         tools = []
         
-        # Semantic search tool
-        def semantic_search(query: str, top_k: int = 15) -> str:
-            """Perform semantic search across all biopharmaceutical data.
-            
-            This tool searches across ground truth data, database data, and clinical trials
-            using semantic similarity. It handles query variations, typos, and contextual understanding.
-            
-            Args:
-                query: Search query (drug name, company name, target, mechanism, etc.)
-                top_k: Number of top results to return (default: 5)
-            
-            Returns:
-                Formatted results from semantic search with relevance scores
-            """
-            try:
-                results = self.vector_db.semantic_search(query, top_k)
-                
-                if results:
-                    formatted_results = []
-                    for i, result in enumerate(results, 1):
-                        metadata = result["metadata"]
-                        similarity_score = result["similarity_score"]
-                        
-                        # Format result based on source
-                        if metadata["source"] == "ground_truth":
-                            formatted_results.append(
-                                f"{i}. 🏆 GROUND TRUTH: {metadata['generic_name']} ({metadata['brand_name']}) "
-                                f"- Company: {metadata['company']} - Target: {metadata['target']} "
-                                f"- Mechanism: {metadata['mechanism']} - Ticket: {metadata['ticket']} "
-                            )
-                        elif metadata["source"] == "database":
-                            formatted_results.append(
-                                f"{i}. 📊 DATABASE: {metadata['generic_name']} ({metadata['brand_name']}) "
-                                f"- Company: {metadata['company']} - Mechanism: {metadata['mechanism']} "
-                                f"- Drug Class: {metadata['drug_class']} (Relevance: {similarity_score:.3f})"
-                            )
-                        elif metadata["source"] == "clinical_trial":
-                            formatted_results.append(
-                                f"{i}. 🧪 CLINICAL TRIAL: {metadata['nct_id']} - Phase: {metadata['phase']} "
-                                f"- Status: {metadata['status']} (Relevance: {similarity_score:.3f})"
-                            )
-                        elif metadata["source"] == "fda":
-                            formatted_results.append(
-                                f"{i}. 🏥 FDA: {metadata['generic_name']} ({metadata['brand_name']}) "
-                                f"- Company: {metadata['company']} - Approval Date: {metadata.get('fda_approval_date', 'N/A')} "
-                                f"- Targets: {metadata.get('target', 'N/A')} (Relevance: {similarity_score:.3f})"
-                            )
-                        elif metadata["source"] == "drugs_com":
-                            formatted_results.append(
-                                f"{i}. 💊 DRUGS.COM: {metadata['title']} "
-                                f"- Source: {metadata.get('url', 'N/A')} (Relevance: {similarity_score:.3f})"
-                            )
-                        else:
-                            formatted_results.append(
-                                f"{i}. {metadata['source'].upper()}: {metadata.get('generic_name', metadata.get('title', 'Unknown'))} "
-                                f"- Company: {metadata.get('company', 'N/A')} (Relevance: {similarity_score:.3f})"
-                            )
-                    
-                    # Add summary at the end
-                    summary = f"\n\nSUMMARY: Found {len(results)} results for '{query}'"
-                    if any(r["metadata"]["source"] == "ground_truth" for r in results):
-                        summary += " - Includes Ground Truth data"
-                    if any(r["metadata"]["source"] == "database" for r in results):
-                        summary += " - Includes Database data"
-                    if any(r["metadata"]["source"] == "clinical_trial" for r in results):
-                        summary += " - Includes Clinical Trial data"
-                    
-                    return f"Semantic Search Results for '{query}':\n" + "\n".join(formatted_results) + summary
-                else:
-                    return f"No semantic search results found for '{query}'"
-                    
-            except Exception as e:
-                logger.error(f"Semantic search error: {e}")
-                return f"Error in semantic search: {str(e)}"
+        # Create function tools
+        tools.append(FunctionTool.from_defaults(fn=self._semantic_search_tool, name="semantic_search"))
+        tools.append(FunctionTool.from_defaults(fn=self._multi_query_search_tool, name="multi_query_search"))
+        tools.append(FunctionTool.from_defaults(fn=self._compare_drugs_tool, name="compare_drugs"))
+        tools.append(FunctionTool.from_defaults(fn=self._search_public_resources_tool, name="search_public_resources"))
         
-        # Multi-query search tool for complex questions
-        def multi_query_search(query: str) -> str:
-            """Perform multiple related searches for complex questions.
-            
-            This tool automatically breaks down complex questions into multiple related searches
-            and aggregates the results for comprehensive answers.
-            
-            Args:
-                query: Complex search query (e.g., "TROP2 competitive landscape", "compare Merck and Gilead drugs")
-            
-            Returns:
-                Aggregated results from multiple related searches
-            """
-            try:
-                # Define search strategies based on query patterns
-                search_queries = []
-                
-                query_lower = query.lower()
-                
-                # Extract entities from query using semantic search
-                # This will help identify targets, companies, and drugs dynamically
-                entity_search = semantic_search(query)
-                
-                # Competitive landscape analysis
-                if any(word in query_lower for word in ['competitive', 'landscape', 'market', 'players']):
-                    # Extract target/entity from query dynamically
-                    search_queries = [
-                        query,
-                        f"{query} drugs",
-                        f"{query} companies", 
-                        f"{query} clinical trials",
-                        f"{query} mechanisms"
-                    ]
-                
-                # Comparison analysis
-                elif any(word in query_lower for word in ['compare', 'comparison', 'vs', 'versus']):
-                    # Extract entities for comparison dynamically
-                    search_queries = [
-                        query,
-                        f"{query} drugs",
-                        f"{query} companies",
-                        f"{query} clinical trials"
-                    ]
-                
-                # Timeline/development analysis
-                elif any(word in query_lower for word in ['timeline', 'development', 'evolution', 'history']):
-                    search_queries = [
-                        query,
-                        f"{query} clinical trials",
-                        f"{query} approvals",
-                        f"{query} partnerships"
-                    ]
-                
-                # Target-specific development questions
-                elif any(word in query_lower for word in ['phase', 'development', 'indication', 'targeting']):
-                    search_queries = [
-                        query,
-                        f"{query} drugs",
-                        f"{query} clinical trials",
-                        f"{query} phase",
-                        f"{query} indication"
-                    ]
-                
-                # Default: expand the original query
-                else:
-                    search_queries = [
-                        query,
-                        f"{query} drugs",
-                        f"{query} companies",
-                        f"{query} clinical trials"
-                    ]
-                
-                # Execute multiple searches
-                all_results = []
-                for search_query in search_queries[:4]:  # Limit to 4 searches
-                    results = self.vector_db.semantic_search(search_query, top_k=3)
-                    all_results.extend(results)
-                
-                # Aggregate and deduplicate results
-                aggregated_results = self._aggregate_search_results(all_results)
-                
-                if aggregated_results:
-                    return f"Multi-Query Analysis for '{query}':\n" + aggregated_results
-                else:
-                    return f"No comprehensive results found for '{query}'"
-                    
-            except Exception as e:
-                logger.error(f"Multi-query search error: {e}")
-                return f"Error in multi-query search: {str(e)}"
+        return tools
+    
+    def _semantic_search_tool(self, query: str, top_k: int = 15) -> str:
+        """Perform semantic search across all biopharmaceutical data.
         
-        # Drug comparison tool
-        def compare_drugs(drug1: str, drug2: str) -> str:
-            """Compare two drugs across multiple dimensions.
-            
-            Args:
-                drug1: First drug name
-                drug2: Second drug name
-            
-            Returns:
-                Detailed comparison of the two drugs
-            """
-            try:
-                # Search for both drugs
-                results1 = self.vector_db.semantic_search(drug1, top_k=5)
-                results2 = self.vector_db.semantic_search(drug2, top_k=5)
-                
-                # Find best matches for each drug
-                drug1_info = self._find_best_drug_match(results1, drug1)
-                drug2_info = self._find_best_drug_match(results2, drug2)
-                
-                if not drug1_info or not drug2_info:
-                    return f"Could not find sufficient information to compare {drug1} and {drug2}"
-                
-                # Create comparison
-                comparison = f"Drug Comparison: {drug1} vs {drug2}\n\n"
-                
-                # Company comparison
-                comparison += f"Companies:\n"
-                comparison += f"  {drug1}: {drug1_info.get('company', 'N/A')}\n"
-                comparison += f"  {drug2}: {drug2_info.get('company', 'N/A')}\n\n"
-                
-                # Target comparison
-                comparison += f"Targets:\n"
-                comparison += f"  {drug1}: {drug1_info.get('target', 'N/A')}\n"
-                comparison += f"  {drug2}: {drug2_info.get('target', 'N/A')}\n\n"
-                
-                # Mechanism comparison
-                comparison += f"Mechanisms:\n"
-                comparison += f"  {drug1}: {drug1_info.get('mechanism', 'N/A')}\n"
-                comparison += f"  {drug2}: {drug2_info.get('mechanism', 'N/A')}\n\n"
-                
-                # Drug class comparison
-                comparison += f"Drug Classes:\n"
-                comparison += f"  {drug1}: {drug1_info.get('drug_class', 'N/A')}\n"
-                comparison += f"  {drug2}: {drug2_info.get('drug_class', 'N/A')}\n\n"
-                
-                # Indication comparison
-                comparison += f"Indications:\n"
-                comparison += f"  {drug1}: {drug1_info.get('indication', 'N/A')}\n"
-                comparison += f"  {drug2}: {drug2_info.get('indication', 'N/A')}\n\n"
-                
-                # Ticket/priority comparison
-                if drug1_info.get('ticket') or drug2_info.get('ticket'):
-                    comparison += f"Business Priority:\n"
-                    comparison += f"  {drug1}: Ticket {drug1_info.get('ticket', 'N/A')}\n"
-                    comparison += f"  {drug2}: Ticket {drug2_info.get('ticket', 'N/A')}\n"
-                
-                return comparison
-                
-            except Exception as e:
-                logger.error(f"Drug comparison error: {e}")
-                return f"Error comparing drugs: {str(e)}"
+        This tool searches across ground truth data, database data, and clinical trials
+        using semantic similarity. It handles query variations, typos, and contextual understanding.
         
-        # Competitive landscape analysis tool
-        # Ground truth direct search tool (backup)
+        Args:
+            query: Search query (drug name, company name, target, mechanism, etc.)
+            top_k: Number of top results to return (default: 5)
         
-        # Cross-validation tool
-        def cross_validate_information(query: str) -> str:
-            """Cross-validate information across multiple sources for accuracy.
+        Returns:
+            Formatted results from semantic search with relevance scores
+        """
+        try:
+            results = self.vector_db.semantic_search(query, top_k)
             
-            Args:
-                query: Query to cross-validate across sources
+            if not results:
+                return f"No semantic search results found for '{query}'"
             
-            Returns:
-                Cross-validation analysis with confidence scores
-            """
-            try:
-                # Search across multiple sources
-                ground_truth_results = self.vector_db.semantic_search(query, top_k=3)
-                database_results = self.vector_db.semantic_search(f"{query} database", top_k=3)
-                clinical_trial_results = self.vector_db.semantic_search(f"{query} clinical trial", top_k=3)
+            # Format all results
+            formatted_results = []
+            for i, result in enumerate(results, 1):
+                formatted_results.append(self._format_search_result(result, i))
+            
+            # Generate summary
+            summary = self._generate_search_summary(results, query)
+            
+            return f"Semantic Search Results for '{query}':\n" + "\n".join(formatted_results) + summary
                 
-                # Analyze consistency across sources
-                validation_report = f"Cross-Validation Analysis for '{query}':\n\n"
-                
-                # Ground Truth Validation
-                gt_drugs = []
-                gt_companies = []
-                gt_targets = []
-                
-                for result in ground_truth_results:
-                    metadata = result["metadata"]
-                    if metadata.get("source") == "ground_truth":
-                        if metadata.get("generic_name"):
-                            gt_drugs.append(metadata["generic_name"])
-                        if metadata.get("company"):
-                            gt_companies.append(metadata["company"])
-                        if metadata.get("target"):
-                            gt_targets.append(metadata["target"])
-                
-                # Database Validation
-                db_drugs = []
-                db_companies = []
-                
-                for result in database_results:
-                    metadata = result["metadata"]
-                    if metadata.get("source") == "database":
-                        if metadata.get("generic_name"):
-                            db_drugs.append(metadata["generic_name"])
-                        if metadata.get("company"):
-                            db_companies.append(metadata["company"])
-                
-                # Clinical Trial Validation
-                trial_phases = []
-                trial_statuses = []
-                
-                for result in clinical_trial_results:
-                    metadata = result["metadata"]
-                    if metadata.get("source") == "clinical_trial":
-                        if metadata.get("phase"):
-                            trial_phases.append(metadata["phase"])
-                        if metadata.get("status"):
-                            trial_statuses.append(metadata["status"])
-                
-                # Cross-validation analysis
-                validation_report += "🔍 Source Consistency Analysis:\n"
-                
-                # Drug consistency
-                common_drugs = set(gt_drugs) & set(db_drugs)
-                if common_drugs:
-                    validation_report += f"  ✅ Drug Consistency: {len(common_drugs)} drugs found in both Ground Truth and Database\n"
-                    validation_report += f"     Common drugs: {', '.join(list(common_drugs)[:3])}\n"
-                else:
-                    validation_report += f"  ⚠️ Drug Consistency: No common drugs between Ground Truth and Database\n"
-                
-                # Company consistency
-                common_companies = set(gt_companies) & set(db_companies)
-                if common_companies:
-                    validation_report += f"  ✅ Company Consistency: {len(common_companies)} companies found in both sources\n"
-                    validation_report += f"     Common companies: {', '.join(list(common_companies)[:3])}\n"
-                else:
-                    validation_report += f"  ⚠️ Company Consistency: No common companies between sources\n"
-                
-                # Target validation
-                if gt_targets:
-                    unique_targets = list(set(gt_targets))
-                    validation_report += f"  🎯 Target Information: {len(unique_targets)} unique targets in Ground Truth\n"
-                    validation_report += f"     Targets: {', '.join(unique_targets[:3])}\n"
-                
-                # Clinical trial validation
-                if trial_phases:
-                    unique_phases = list(set(trial_phases))
-                    validation_report += f"  🧪 Clinical Trial Phases: {len(unique_phases)} different phases\n"
-                    validation_report += f"     Phases: {', '.join(unique_phases)}\n"
-                
-                # Confidence scoring
-                confidence_factors = []
-                
-                if common_drugs:
-                    confidence_factors.append("Drug consistency across sources")
-                if common_companies:
-                    confidence_factors.append("Company consistency across sources")
-                if gt_targets:
-                    confidence_factors.append("Target information available")
-                if trial_phases:
-                    confidence_factors.append("Clinical trial data available")
-                
-                confidence_score = len(confidence_factors) / 4.0  # Normalize to 0-1
-                
-                validation_report += f"\n📊 Cross-Validation Confidence: {confidence_score:.2f}\n"
-                validation_report += f"Confidence Factors:\n"
-                for factor in confidence_factors:
-                    validation_report += f"  ✅ {factor}\n"
-                
-                if confidence_score < 0.5:
-                    validation_report += f"\n⚠️ Low confidence - Limited cross-validation support\n"
-                elif confidence_score < 0.75:
-                    validation_report += f"\n✅ Moderate confidence - Good cross-validation support\n"
-                else:
-                    validation_report += f"\n🎯 High confidence - Strong cross-validation support\n"
-                
-                validation_report += f"\n🏆📊 Data Source: Cross-Validated (Ground Truth + Database + Clinical Trials)"
-                
-                return validation_report
-                
-            except Exception as e:
-                logger.error(f"Cross-validation error: {e}")
-                return f"Error in cross-validation: {str(e)}"
+        except Exception as e:
+            logger.error(f"Semantic search error: {e}")
+            return f"Error in semantic search: {str(e)}"
+    
+    def _multi_query_search_tool(self, query: str) -> str:
+        """Perform multiple related searches for complex questions.
         
-        # Data consistency checker
-        def check_data_consistency(entity_name: str, entity_type: str) -> str:
-            """Check data consistency for a specific entity across sources.
-            
-            Args:
-                entity_name: Name of the entity to check
-                entity_type: Type of entity (drug, company, target)
-            
-            Returns:
-                Consistency analysis report
-            """
-            try:
-                consistency_report = f"Data Consistency Check: {entity_name} ({entity_type})\n\n"
-                
-                # Search for the entity across all sources
-                all_results = self.vector_db.semantic_search(entity_name, top_k=10)
-                
-                # Group results by source
-                source_data = {
-                    "ground_truth": [],
-                    "database": [],
-                    "clinical_trial": []
-                }
-                
-                for result in all_results:
-                    metadata = result["metadata"]
-                    source = metadata.get("source", "unknown")
-                    if source in source_data:
-                        source_data[source].append(result)
-                
-                # Analyze consistency
-                inconsistencies = []
-                consistent_data = []
-                
-                # Check for entity-specific consistency
-                if entity_type.lower() == "drug":
-                    # Check drug name consistency
-                    drug_names = set()
-                    companies = set()
-                    
-                    for source, results in source_data.items():
-                        for result in results:
-                            metadata = result["metadata"]
-                            if metadata.get("generic_name"):
-                                drug_names.add(metadata["generic_name"].lower())
-                            if metadata.get("company"):
-                                companies.add(metadata["company"])
-                    
-                    if len(drug_names) > 1:
-                        inconsistencies.append(f"Multiple drug name variations: {', '.join(drug_names)}")
-                    else:
-                        consistent_data.append("Drug name consistent across sources")
-                    
-                    if len(companies) > 1:
-                        inconsistencies.append(f"Multiple companies associated: {', '.join(companies)}")
-                    else:
-                        consistent_data.append("Company association consistent")
-                
-                elif entity_type.lower() == "company":
-                    # Check company name consistency
-                    company_names = set()
-                    
-                    for source, results in source_data.items():
-                        for result in results:
-                            metadata = result["metadata"]
-                            if metadata.get("company"):
-                                company_names.add(metadata["company"])
-                    
-                    if len(company_names) > 1:
-                        inconsistencies.append(f"Multiple company name variations: {', '.join(company_names)}")
-                    else:
-                        consistent_data.append("Company name consistent across sources")
-                
-                # Generate report
-                consistency_report += f"📊 Sources Found:\n"
-                for source, results in source_data.items():
-                    consistency_report += f"  • {source}: {len(results)} entries\n"
-                
-                consistency_report += f"\n✅ Consistent Data:\n"
-                for item in consistent_data:
-                    consistency_report += f"  • {item}\n"
-                
-                if inconsistencies:
-                    consistency_report += f"\n⚠️ Inconsistencies Found:\n"
-                    for item in inconsistencies:
-                        consistency_report += f"  • {item}\n"
-                else:
-                    consistency_report += f"\n🎯 No inconsistencies found - Data is consistent across sources\n"
-                
-                # Overall consistency score
-                total_checks = len(consistent_data) + len(inconsistencies)
-                consistency_score = len(consistent_data) / total_checks if total_checks > 0 else 0
-                
-                consistency_report += f"\n📈 Overall Consistency Score: {consistency_score:.2f}\n"
-                
-                if consistency_score >= 0.8:
-                    consistency_report += f"🎯 High consistency - Data is reliable\n"
-                elif consistency_score >= 0.6:
-                    consistency_report += f"✅ Moderate consistency - Data is mostly reliable\n"
-                else:
-                    consistency_report += f"⚠️ Low consistency - Data needs verification\n"
-                
-                consistency_report += f"\n🏆📊 Data Source: Consistency Checked (Multi-Source)"
-                
-                return consistency_report
-                
-            except Exception as e:
-                logger.error(f"Data consistency check error: {e}")
-                return f"Error checking data consistency: {str(e)}"
+        This tool automatically breaks down complex questions into multiple related searches
+        and aggregates the results for comprehensive answers.
         
-        # Public resource search tool
-        def search_public_resources(query: str) -> str:
-            """Search public resources for information not available in internal database.
+        Args:
+            query: Complex search query (e.g., "TROP2 competitive landscape", "compare Merck and Gilead drugs")
+        
+        Returns:
+            Aggregated results from multiple related searches
+        """
+        try:
+            # Define search strategies based on query patterns
+            search_queries = self._determine_search_strategy(query)
             
-            Args:
-                query: Search query for public information
+            # Execute multiple searches
+            all_results = []
+            for search_query in search_queries[:4]:  # Limit to 4 searches
+                results = self.vector_db.semantic_search(search_query, top_k=3)
+                all_results.extend(results)
             
-            Returns:
-                Information from public sources with clear attribution
-            """
-            try:
-                # This is a placeholder for public resource search
-                # In a real implementation, this could integrate with:
-                # - PubMed API for scientific literature
-                # - ClinicalTrials.gov API for trial information
-                # - FDA database for drug approvals
-                # - Company websites and press releases
+            # Aggregate and deduplicate results
+            aggregated_results = self._aggregate_search_results(all_results)
+            
+            if aggregated_results:
+                return f"Multi-Query Analysis for '{query}':\n" + aggregated_results
+            else:
+                return f"No comprehensive results found for '{query}'"
                 
-                return f"""🌐 Public Resource Search Results for '{query}':
+        except Exception as e:
+            logger.error(f"Multi-query search error: {e}")
+            return f"Error in multi-query search: {str(e)}"
+    
+    def _determine_search_strategy(self, query: str) -> List[str]:
+        """Determine search strategy based on query patterns."""
+        query_lower = query.lower()
+        
+        # Define search strategies for different query types
+        search_strategies = {
+            'competitive': ['competitive', 'landscape', 'market', 'players'],
+            'comparison': ['compare', 'comparison', 'vs', 'versus'],
+            'timeline': ['timeline', 'development', 'evolution', 'history'],
+            'target_dev': ['phase', 'development', 'indication', 'targeting']
+        }
+        
+        # Define query expansions for each strategy
+        strategy_expansions = {
+            'competitive': [query, f"{query} drugs", f"{query} companies", f"{query} clinical trials", f"{query} mechanisms"],
+            'comparison': [query, f"{query} drugs", f"{query} companies", f"{query} clinical trials"],
+            'timeline': [query, f"{query} clinical trials", f"{query} approvals", f"{query} partnerships"],
+            'target_dev': [query, f"{query} drugs", f"{query} clinical trials", f"{query} phase", f"{query} indication"]
+        }
+        
+        # Find matching strategy
+        for strategy, keywords in search_strategies.items():
+            if any(word in query_lower for word in keywords):
+                return strategy_expansions[strategy]
+        
+        # Default strategy
+        return [query, f"{query} drugs", f"{query} companies", f"{query} clinical trials"]
+    
+    def _compare_drugs_tool(self, drug1: str, drug2: str) -> str:
+        """Compare two drugs across multiple dimensions.
+        
+        Args:
+            drug1: First drug name
+            drug2: Second drug name
+        
+        Returns:
+            Detailed comparison of the two drugs
+        """
+        try:
+            # Search for both drugs and find best matches
+            drug1_info, drug2_info = self._get_drug_comparison_data(drug1, drug2)
+            
+            if not drug1_info or not drug2_info:
+                return f"Could not find sufficient information to compare {drug1} and {drug2}"
+            
+            # Build comparison report
+            return self._build_drug_comparison_report(drug1, drug2, drug1_info, drug2_info)
+            
+        except Exception as e:
+            logger.error(f"Drug comparison error: {e}")
+            return f"Error comparing drugs: {str(e)}"
+    
+    def _get_drug_comparison_data(self, drug1: str, drug2: str) -> tuple:
+        """Get drug information for comparison."""
+        results1 = self.vector_db.semantic_search(drug1, top_k=5)
+        results2 = self.vector_db.semantic_search(drug2, top_k=5)
+        
+        drug1_info = self._find_best_drug_match(results1, drug1)
+        drug2_info = self._find_best_drug_match(results2, drug2)
+        
+        return drug1_info, drug2_info
+    
+    def _build_drug_comparison_report(self, drug1: str, drug2: str, drug1_info: Dict[str, Any], drug2_info: Dict[str, Any]) -> str:
+        """Build a detailed comparison report for two drugs."""
+        comparison = f"Drug Comparison: {drug1} vs {drug2}\n\n"
+        
+        # Define comparison categories
+        comparison_categories = [
+            ("Companies", "company"),
+            ("Targets", "target"),
+            ("Mechanisms", "mechanism"),
+            ("Drug Classes", "drug_class"),
+            ("Indications", "indication")
+        ]
+        
+        # Add each comparison category
+        for category_name, field_name in comparison_categories:
+            comparison += f"{category_name}:\n"
+            comparison += f"  {drug1}: {drug1_info.get(field_name, 'N/A')}\n"
+            comparison += f"  {drug2}: {drug2_info.get(field_name, 'N/A')}\n\n"
+        
+        # Add business priority if available
+        if drug1_info.get('ticket') or drug2_info.get('ticket'):
+            comparison += f"Business Priority:\n"
+            comparison += f"  {drug1}: Ticket {drug1_info.get('ticket', 'N/A')}\n"
+            comparison += f"  {drug2}: Ticket {drug2_info.get('ticket', 'N/A')}\n"
+        
+        return comparison
+    
+    def _search_public_resources_tool(self, query: str) -> str:
+        """Search public resources for information not available in internal database.
+        
+        Args:
+            query: Search query for public information
+        
+        Returns:
+            Information from public sources with clear attribution
+        """
+        try:
+            # This is a placeholder for public resource search
+            # In a real implementation, this could integrate with:
+            # - PubMed API for scientific literature
+            # - ClinicalTrials.gov API for trial information
+            # - FDA database for drug approvals
+            # - Company websites and press releases
+            
+            return f"""🌐 Public Resource Search Results for '{query}':
 
 Based on publicly available information:
 
@@ -622,158 +725,247 @@ please refer to our internal database and ground truth data, which contains:
 🌐 Data Source: Public Information
 
 Would you like me to search for more specific information in our internal database?"""
-                
-            except Exception as e:
-                logger.error(f"Public resource search error: {e}")
-                return f"Error searching public resources: {str(e)}"
-        
-        # Development phase analysis tool
-        def analyze_development_phase(targets: str) -> str:
-            """Analyze development phases and indications for specific targets.
             
-            Args:
-                targets: Comma-separated list of targets (e.g., "PD-L1, VEGF")
+        except Exception as e:
+            logger.error(f"Public resource search error: {e}")
+            return f"Error searching public resources: {str(e)}"
+    
+    def _collect_target_results(self, target_list: List[str]) -> List[Dict[str, Any]]:
+        """Collect search results for all targets."""
+        all_results = []
+        
+        for target in target_list:
+            # Search for drugs targeting this specific target
+            results = self.vector_db.semantic_search(f"{target} drugs", top_k=5)
+            all_results.extend(results)
             
-            Returns:
-                Detailed analysis of development phases and indications
-            """
-            try:
-                target_list = [t.strip().upper() for t in targets.split(',')]
-                all_results = []
-                
-                for target in target_list:
-                    # Search for drugs targeting this specific target
-                    results = self.vector_db.semantic_search(f"{target} drugs", top_k=5)
-                    all_results.extend(results)
-                    
-                    # Search for clinical trials
-                    trial_results = self.vector_db.semantic_search(f"{target} clinical trials", top_k=3)
-                    all_results.extend(trial_results)
-                
-                if not all_results:
-                    return f"No development information found for targets: {targets}"
-                
-                # Group results by target and analyze
-                analysis = f"Development Phase Analysis for: {targets}\n\n"
-                
-                for target in target_list:
-                    target_drugs = []
-                    target_trials = []
-                    
-                    for result in all_results:
-                        metadata = result["metadata"]
-                        result_target = metadata.get("target", "").upper()
-                        
-                        # Check for exact match or partial match
-                        if (result_target == target or 
-                            target in result_target or 
-                            result_target in target or
-                            (target == "VEGF" and "VEGF" in result_target) or
-                            (target == "PD-L1" and ("PD-L1" in result_target or "PD1" in result_target))):
-                            if metadata.get("source") == "ground_truth":
-                                target_drugs.append(result)
-                            elif metadata.get("source") == "clinical_trial":
-                                target_trials.append(result)
-                    
-                    analysis += f"🎯 {target} Analysis:\n"
-                    
-                    if target_drugs:
-                        analysis += f"  📊 Drugs in Development:\n"
-                        for drug in target_drugs:
-                            metadata = drug["metadata"]
-                            analysis += f"    • {metadata.get('generic_name', 'Unknown')}"
-                            if metadata.get('brand_name'):
-                                analysis += f" ({metadata.get('brand_name')})"
-                            analysis += f" - {metadata.get('company', 'Unknown')}"
-                            analysis += f"\n"
-                    
-                    if target_trials:
-                        analysis += f"  🧪 Clinical Trials:\n"
-                        for trial in target_trials:
-                            metadata = trial["metadata"]
-                            analysis += f"    • {metadata.get('title', 'Unknown')[:80]}..."
-                            if metadata.get('phase'):
-                                analysis += f" - Phase {metadata.get('phase')}"
-                            if metadata.get('status'):
-                                analysis += f" - {metadata.get('status')}"
-                            analysis += f"\n"
-                    
-                    if not target_drugs and not target_trials:
-                        analysis += f"    ❌ No specific {target} data found in internal sources\n"
-                    
-                    analysis += "\n"
-                
-                # Summary
-                total_drugs = len([r for r in all_results if r["metadata"].get("source") == "ground_truth"])
-                total_trials = len([r for r in all_results if r["metadata"].get("source") == "clinical_trial"])
-                
-                analysis += f"📈 Summary:\n"
-                analysis += f"  • Total drugs found: {total_drugs}\n"
-                analysis += f"  • Total clinical trials found: {total_trials}\n"
-                analysis += f"  • Targets analyzed: {', '.join(target_list)}\n"
-                
-                return analysis
-                
-            except Exception as e:
-                logger.error(f"Development phase analysis error: {e}")
-                return f"Error analyzing development phases: {str(e)}"
+            # Search for clinical trials
+            trial_results = self.vector_db.semantic_search(f"{target} clinical trials", top_k=3)
+            all_results.extend(trial_results)
         
-        # Create function tools
-        tools.append(FunctionTool.from_defaults(fn=semantic_search, name="semantic_search"))
-        tools.append(FunctionTool.from_defaults(fn=multi_query_search, name="multi_query_search"))
-        tools.append(FunctionTool.from_defaults(fn=compare_drugs, name="compare_drugs"))
-        tools.append(FunctionTool.from_defaults(fn=search_public_resources, name="search_public_resources"))
+        return all_results
+    
+    def _build_target_analysis(self, target_list: List[str], all_results: List[Dict[str, Any]]) -> str:
+        """Build detailed analysis for each target."""
+        analysis = f"Development Phase Analysis for: {', '.join(target_list)}\n\n"
         
-        return tools
+        for target in target_list:
+            target_drugs, target_trials = self._categorize_target_results(target, all_results)
+            
+            analysis += f"🎯 {target} Analysis:\n"
+            analysis += self._format_target_drugs(target_drugs)
+            analysis += self._format_target_trials(target_trials)
+            
+            if not target_drugs and not target_trials:
+                analysis += f"    ❌ No specific {target} data found in internal sources\n"
+            
+            analysis += "\n"
+        
+        return analysis
+    
+    def _categorize_target_results(self, target: str, all_results: List[Dict[str, Any]]) -> tuple:
+        """Categorize results into drugs and trials for a specific target."""
+        target_drugs = []
+        target_trials = []
+        
+        for result in all_results:
+            metadata = result["metadata"]
+            result_target = metadata.get("target", "").upper()
+            
+            # Check for exact match or partial match
+            if self._is_target_match(target, result_target):
+                if metadata.get("source") == "ground_truth":
+                    target_drugs.append(result)
+                elif metadata.get("source") == "clinical_trial":
+                    target_trials.append(result)
+        
+        return target_drugs, target_trials
+    
+    def _is_target_match(self, target: str, result_target: str) -> bool:
+        """Check if target matches result target."""
+        return (result_target == target or 
+                target in result_target or 
+                result_target in target or
+                (target == "VEGF" and "VEGF" in result_target) or
+                (target == "PD-L1" and ("PD-L1" in result_target or "PD1" in result_target)))
+    
+    def _format_target_drugs(self, target_drugs: List[Dict[str, Any]]) -> str:
+        """Format target drugs for display."""
+        if not target_drugs:
+            return ""
+        
+        analysis = f"  📊 Drugs in Development:\n"
+        for drug in target_drugs:
+            metadata = drug["metadata"]
+            analysis += f"    • {metadata.get('generic_name', 'Unknown')}"
+            if metadata.get('brand_name'):
+                analysis += f" ({metadata.get('brand_name')})"
+            analysis += f" - {metadata.get('company', 'Unknown')}\n"
+        
+        return analysis
+    
+    def _format_target_trials(self, target_trials: List[Dict[str, Any]]) -> str:
+        """Format target trials for display."""
+        if not target_trials:
+            return ""
+        
+        analysis = f"  🧪 Clinical Trials:\n"
+        for trial in target_trials:
+            metadata = trial["metadata"]
+            analysis += f"    • {metadata.get('title', 'Unknown')[:80]}..."
+            if metadata.get('phase'):
+                analysis += f" - Phase {metadata.get('phase')}"
+            if metadata.get('status'):
+                analysis += f" - {metadata.get('status')}"
+            analysis += f"\n"
+        
+        return analysis
+    
+    def _build_development_summary(self, all_results: List[Dict[str, Any]], target_list: List[str]) -> str:
+        """Build summary section for development analysis."""
+        total_drugs = len([r for r in all_results if r["metadata"].get("source") == "ground_truth"])
+        total_trials = len([r for r in all_results if r["metadata"].get("source") == "clinical_trial"])
+        
+        analysis = f"📈 Summary:\n"
+        analysis += f"  • Total drugs found: {total_drugs}\n"
+        analysis += f"  • Total clinical trials found: {total_trials}\n"
+        analysis += f"  • Targets analyzed: {', '.join(target_list)}\n"
+        
+        return analysis
+    
+    def _group_results_by_source(self, all_results: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+        """Group search results by source."""
+        source_data = {
+            "ground_truth": [],
+            "database": [],
+            "clinical_trial": []
+        }
+        
+        for result in all_results:
+            metadata = result["metadata"]
+            source = metadata.get("source", "unknown")
+            if source in source_data:
+                source_data[source].append(result)
+        
+        return source_data
+    
+    def _analyze_entity_consistency(
+        self, 
+        entity_type: str, 
+        source_data: Dict[str, List[Dict[str, Any]]]
+    ) -> Tuple[List[str], List[str]]:
+        """Analyze consistency for a specific entity type."""
+        inconsistencies = []
+        consistent_data = []
+        
+        if entity_type.lower() == "drug":
+            inconsistencies, consistent_data = self._analyze_drug_consistency(source_data)
+        elif entity_type.lower() == "company":
+            inconsistencies, consistent_data = self._analyze_company_consistency(source_data)
+        
+        return inconsistencies, consistent_data
+    
+    def _analyze_drug_consistency(
+        self, 
+        source_data: Dict[str, List[Dict[str, Any]]]
+    ) -> Tuple[List[str], List[str]]:
+        """Analyze drug-specific consistency."""
+        inconsistencies = []
+        consistent_data = []
+        
+        drug_names = set()
+        companies = set()
+        
+        for source, results in source_data.items():
+            for result in results:
+                metadata = result["metadata"]
+                if metadata.get("generic_name"):
+                    drug_names.add(metadata["generic_name"].lower())
+                if metadata.get("company"):
+                    companies.add(metadata["company"])
+        
+        if len(drug_names) > 1:
+            inconsistencies.append(f"Multiple drug name variations: {', '.join(drug_names)}")
+        else:
+            consistent_data.append("Drug name consistent across sources")
+        
+        if len(companies) > 1:
+            inconsistencies.append(f"Multiple companies associated: {', '.join(companies)}")
+        else:
+            consistent_data.append("Company association consistent")
+        
+        return inconsistencies, consistent_data
+    
+    def _analyze_company_consistency(
+        self, 
+        source_data: Dict[str, List[Dict[str, Any]]]
+    ) -> Tuple[List[str], List[str]]:
+        """Analyze company-specific consistency."""
+        inconsistencies = []
+        consistent_data = []
+        
+        company_names = set()
+        
+        for source, results in source_data.items():
+            for result in results:
+                metadata = result["metadata"]
+                if metadata.get("company"):
+                    company_names.add(metadata["company"])
+        
+        if len(company_names) > 1:
+            inconsistencies.append(f"Multiple company name variations: {', '.join(company_names)}")
+        else:
+            consistent_data.append("Company name consistent across sources")
+        
+        return inconsistencies, consistent_data
+    
+    def _generate_consistency_report(
+        self,
+        source_data: Dict[str, List[Dict[str, Any]]],
+        consistent_data: List[str],
+        inconsistencies: List[str]
+    ) -> str:
+        """Generate the consistency report."""
+        report = f"📊 Sources Found:\n"
+        for source, results in source_data.items():
+            report += f"  • {source}: {len(results)} entries\n"
+        
+        report += f"\n✅ Consistent Data:\n"
+        for item in consistent_data:
+            report += f"  • {item}\n"
+        
+        if inconsistencies:
+            report += f"\n⚠️ Inconsistencies Found:\n"
+            for item in inconsistencies:
+                report += f"  • {item}\n"
+        else:
+            report += f"\n🎯 No inconsistencies found - Data is consistent across sources\n"
+        
+        # Overall consistency score
+        total_checks = len(consistent_data) + len(inconsistencies)
+        consistency_score = len(consistent_data) / total_checks if total_checks > 0 else 0
+        
+        report += f"\n📈 Overall Consistency Score: {consistency_score:.2f}\n"
+        
+        if consistency_score >= 0.8:
+            report += f"🎯 High consistency - Data is reliable\n"
+        elif consistency_score >= 0.6:
+            report += f"✅ Moderate consistency - Data is mostly reliable\n"
+        else:
+            report += f"⚠️ Low consistency - Data needs verification\n"
+        
+        report += f"\n🏆📊 Data Source: Consistency Checked (Multi-Source)"
+        
+        return report
     
     def _aggregate_search_results(self, results: List[Dict[str, Any]]) -> str:
         """Aggregate and deduplicate search results."""
         try:
             # Group results by source and company
-            grouped_results = {}
-            seen_drugs = set()
-            
-            for result in results:
-                metadata = result["metadata"]
-                source = metadata.get("source", "unknown")
-                company = metadata.get("company", "Unknown")
-                drug_name = metadata.get("generic_name", "")
-                
-                # Create unique key for deduplication
-                drug_key = f"{drug_name}_{company}".lower()
-                if drug_key in seen_drugs:
-                    continue
-                seen_drugs.add(drug_key)
-                
-                if source not in grouped_results:
-                    grouped_results[source] = {}
-                if company not in grouped_results[source]:
-                    grouped_results[source][company] = []
-                
-                grouped_results[source][company].append(result)
+            grouped_results = self._group_results_by_source_and_company(results)
             
             # Format aggregated results
-            formatted_results = []
-            
-            for source, companies in grouped_results.items():
-                source_name = "Ground Truth" if source == "ground_truth" else "Database"
-                formatted_results.append(f"\n📊 {source_name} Results:")
-                
-                for company, drugs in companies.items():
-                    formatted_results.append(f"\n🏢 {company}:")
-                    for drug in drugs:
-                        metadata = drug["metadata"]
-                        similarity_score = drug["similarity_score"]
-                        
-                        drug_text = f"  • {metadata.get('generic_name', 'Unknown')}"
-                        if metadata.get('brand_name'):
-                            drug_text += f" ({metadata.get('brand_name')})"
-                        if metadata.get('target'):
-                            drug_text += f" - Target: {metadata.get('target')}"
-                        if metadata.get('mechanism'):
-                            drug_text += f" - Mechanism: {metadata.get('mechanism')}"
-                        
-                        formatted_results.append(drug_text)
+            formatted_results = self._format_aggregated_results(grouped_results)
             
             return "\n".join(formatted_results) if formatted_results else "No results found"
             
@@ -797,11 +989,8 @@ Would you like me to search for more specific information in our internal databa
                     generic_name in drug_name_lower):
                     return metadata
             
-            # Return highest relevance result if no exact match
-            if results:
-                return results[0]["metadata"]
-            
-            return None
+            # Return highest relevance result if no exact match, or None if no results
+            return results[0]["metadata"] if results else None
             
         except Exception as e:
             logger.error(f"Error finding best drug match: {e}")
@@ -819,7 +1008,7 @@ Would you like me to search for more specific information in our internal databa
                 llm=self.llm,
                 memory=memory,
                 verbose=True,
-                max_iterations=5,
+                max_iterations=3,
                 system_prompt="""
                 You are a specialized oncology and cancer research assistant focused on biopartnering insights.
                 You use the React framework (Reasoning + Acting + Observing) to provide accurate, evidence-based responses.
@@ -832,6 +1021,12 @@ Would you like me to search for more specific information in our internal databa
                 5. PROVIDE DETAILS: When you find relevant data, extract and present all key information clearly
                 
                 CRITICAL: For simple questions like "companies with TROP2", use semantic_search ONCE and provide the answer immediately. Do not iterate multiple times.
+                
+                TERMINATION CONDITIONS:
+                - If you get results from semantic_search, provide the answer immediately
+                - Do NOT run multiple searches for simple questions
+                - Do NOT iterate more than 2 times for basic company/target questions
+                - If you find yourself repeating the same search query, STOP and provide the best answer you have
                 
                 QUERY STRATEGY FOR BETTER RESULTS:
                 - For "companies with TROP2": Search "TROP2 targeting companies" or "TROP2 drugs companies"
@@ -852,10 +1047,12 @@ Would you like me to search for more specific information in our internal databa
                 - For drug comparisons: Use compare_drugs
                 - When internal data insufficient: Use search_public_resources
                 
-                STOPPING CONDITIONS:
+                STOPPING CONDITIONS (CRITICAL):
                 - If you get results from semantic_search, provide the answer immediately
                 - Do NOT run multiple searches for simple questions
                 - Do NOT iterate more than 2 times for basic company/target questions
+                - If you see the same search query being repeated, STOP immediately and provide the best answer you have
+                - For "companies targeting X" questions, search once and list all companies found
                 
                 RESPONSE GUIDELINES:
                 - ALWAYS use semantic_search FIRST for any question
@@ -913,17 +1110,20 @@ Would you like me to search for more specific information in our internal databa
                 Don't just list names - include mechanisms, ticket numbers, drug classes, and other relevant details.
                 
                 CRITICAL RESPONSE FORMATTING:
-                - When you get detailed tool output (like from analyze_competitive_landscape), USE IT DIRECTLY
-                - Do NOT summarize or shorten the tool output - present it as-is
-                - Include ALL the emojis, formatting, and details from the tool output
-                - Add data source attribution at the end
-                - The tool output IS your answer - don't rewrite it!
+                - Use the exact format from the examples above
+                - List companies with their drug names and key details in parentheses
+                - Include specific targets, mechanisms, and development phases when available
+                - Use semicolons to separate multiple drugs from the same company
+                - Include clinical trial phases and indications when available
+                - Be comprehensive - include all relevant companies and drugs found
+                - Use natural language flow, not bullet points or structured lists
                 
                 FINAL ANSWER INSTRUCTIONS:
-                - Your final answer should be the COMPLETE tool output, not a summary
-                - Copy the tool output exactly as it appears
-                - Add data source attribution at the end
-                - Do NOT write "There are X companies..." - use the full tool output instead
+                - Follow the exact pattern from the examples: "Company: Drug (details); Company: Drug (details)"
+                - Include drug codes/names, targets, mechanisms, and phases in parentheses
+                - Use semicolons to separate different companies
+                - Include clinical trial information and indications when available
+                - Be comprehensive and detailed like the examples
                 
                 CRITICAL: When you see "IMPORTANT: This is your complete answer. Do not summarize or shorten this response. Present it exactly as shown above." in the tool output, you MUST copy the ENTIRE tool output as your final answer, including all emojis, formatting, and details.
                 
@@ -939,23 +1139,26 @@ Would you like me to search for more specific information in our internal databa
                 
                 EXAMPLES OF GOOD RESPONSES:
                 
-                Example 1 - Simple Company/Target Question:
-                Question: "What are the companies with TROP2?"
+                Example 1 - KRAS Inhibitor Question:
+                Question: "Which companies are active in KRAS inhibitor?"
                 Tool: semantic_search
-                Query: "TROP2 targeting companies" (NOT just "TROP2")
-                Tool Output: "Found 3 companies with TROP2:
+                Query: "KRAS inhibitor companies"
                 
-                1. 🏆 GROUND TRUTH: Sacituzumab govitecan-hziy (Trodelvy) - Company: Gilead - Target: TROP2 (Relevance: 0.502)
-                2. 🏆 GROUND TRUTH: Datopotamab deruxtecan-dlnk (DATROWAY) - Company: Daiichi - Target: TROP2 (Relevance: 0.494)
-                3. 🏆 GROUND TRUTH: sacituzumab tirumotecan (MK-2870) - Company: Merck - Target: TROP2 (Relevance: 0.488)"
+                Final Answer: "Companies have KRAS inhibitor: Roche (RG6620 / GDC-7035 targeting KRAS G12D; Divarasib / GDC-6036 / RG6330 Targeting KRAS G12C); Amgen (LUMAKRAS was approved for KRAS G12C‑mutated locally advanced or metastatic NSCLC) and have clinical trials on Advanced Colorectal Cancer; NSCLC; Merck (MK-1084 targting KRAS G12C); Eli Lilly (Olomorasib targeting KRAS G12C; KRAS G12D targeting KRAS G12D; LY4066434 is Pan KRAS)"
                 
-                Final Answer: "The companies with TROP2 are:
+                Example 2 - BCL6 Question:
+                Question: "Who is working on BCL6?"
+                Tool: semantic_search
+                Query: "BCL6 companies drugs"
                 
-                🏢 Gilead: Sacituzumab govitecan-hziy (Trodelvy) - TROP2 targeting
-                🏢 Daiichi: Datopotamab deruxtecan-dlnk (DATROWAY) - TROP2 targeting  
-                🏢 Merck: sacituzumab tirumotecan (MK-2870) - TROP2 targeting
+                Final Answer: "Arvinas: ARV-393 (oral BCL6 PROTAC degrader, Phase 1, with advanced NHL) Bristol Myers Squibb: BMS-986458 (BCL6 degrader, Phase 1, NHL) Treeline Biosciences: TLN-121 (BCL6 degrader, Phase 1, relapsed or refractory NHL). Treeline reaps $200M A extension, picked three candidates including TLN-121"
                 
-                🏆📊 Data Source: Internal (Ground Truth + Database)"
+                Example 3 - MTAP Question:
+                Question: "Can you pull who does MTAP?"
+                Tool: semantic_search
+                Query: "MTAP companies drugs"
+                
+                Final Answer: "Bayer (BAY 3713372) – Phase 1/2 mono & combo in advanced NSCLC, GI, biliary tract, and pancreatic cancers, plus other solid tumors. Amgen (AMG 193) – Phase 1 mono & combo studies in MTAP-deleted solid tumors, pancreatic ductal adenocarcinoma (PDAC), GI, and biliary tract cancers. BMS (MRTX1719 / BMS-986504) – Phase 1–3 mono & combo across MTAP-deleted solid tumors; BMS-986504 focuses on first-line metastatic NSCLC. AstraZeneca (AZD3470) – Phase 1 in MTAP-deficient advanced/metastatic solid tumors. Gilead (GS-5319) – Phase 1 in MTAP-deleted advanced solid tumors."
                 
                 CRITICAL: This is a SIMPLE question - use semantic_search ONCE with descriptive query and answer immediately. Do NOT iterate multiple times.
                 
@@ -1028,8 +1231,25 @@ Would you like me to search for more specific information in our internal databa
             # Generate response using React agent
             logger.info(f"Generating React response for: {question}")
             
-            response = self.agent.chat(question)
-            answer = str(response)
+            # Try React agent first
+            try:
+                response = self.agent.chat(question)
+                answer = str(response)
+                
+                # Check if response indicates timeout or infinite loop
+                if self._is_no_data_response(answer) or "timed out" in answer.lower():
+                    logger.warning("React agent timed out or returned no data, trying fallback")
+                    fallback_answer = self._fallback_search(question)
+                    if fallback_answer:
+                        answer = fallback_answer
+                
+            except Exception as agent_error:
+                logger.warning(f"React agent failed: {agent_error}, trying fallback")
+                fallback_answer = self._fallback_search(question)
+                if fallback_answer:
+                    answer = fallback_answer
+                else:
+                    raise agent_error
             
             # Create result
             result = {
@@ -1046,6 +1266,21 @@ Would you like me to search for more specific information in our internal databa
             
         except Exception as e:
             logger.error(f"Error generating React response: {e}")
+            
+            # Try fallback search as last resort
+            try:
+                fallback_answer = self._fallback_search(question)
+                if fallback_answer:
+                    return {
+                        "question": question,
+                        "answer": fallback_answer,
+                        "source": "fallback_search",
+                        "citations": [],
+                        "timestamp": datetime.now().isoformat(),
+                        "success": True
+                    }
+            except Exception as fallback_error:
+                logger.error(f"Fallback search also failed: {fallback_error}")
             
             return {
                 "question": question,
@@ -1077,21 +1312,8 @@ Would you like me to search for more specific information in our internal databa
         try:
             logger.info(f"Running fallback search for: {question}")
             
-            # Extract key terms from question
-            question_lower = question.lower()
-            
-            # Determine search strategy based on question type (completely dynamic)
-            if any(word in question_lower for word in ['company', 'companies']):
-                # Extract target from question dynamically
-                target = self._extract_target_from_question(question)
-                if target:
-                    search_query = f"{target} companies drugs"
-                else:
-                    search_query = f"{question} companies"
-            elif any(word in question_lower for word in ['drug', 'drugs']):
-                search_query = f"{question} drugs"
-            else:
-                search_query = question
+            # Determine search strategy based on question type
+            search_query = self._determine_search_query(question)
             
             # Perform semantic search
             results = self.vector_db.semantic_search(search_query, top_k=5)
@@ -1099,56 +1321,11 @@ Would you like me to search for more specific information in our internal databa
             if not results:
                 return None
             
-            # Format results
-            answer_parts = []
+            # Group results by company
+            companies = self._group_results_by_company(results)
             
-            # Group by company
-            companies = {}
-            for result in results:
-                metadata = result["metadata"]
-                company = metadata.get("company", "Unknown")
-                generic_name = metadata.get("generic_name", "").strip()
-                brand_name = metadata.get("brand_name", "").strip()
-                
-                # Skip entries with empty drug names
-                if not generic_name and not brand_name:
-                    continue
-                
-                # Use brand name if generic name is empty, or vice versa
-                drug_name = generic_name if generic_name else brand_name
-                
-                if company not in companies:
-                    companies[company] = []
-                
-                companies[company].append({
-                    "drug": drug_name,
-                    "brand": brand_name if generic_name else "",  # Only show brand if we have generic
-                    "target": metadata.get("target", ""),
-                    "mechanism": metadata.get("mechanism", ""),
-                    "ticket": metadata.get("ticket", ""),
-                    "relevance": result["similarity_score"]
-                })
-            
-            # Build answer
-            if companies:
-                answer_parts.append(f"Found {len(companies)} companies:")
-                
-                for company, drugs in companies.items():
-                    answer_parts.append(f"\\n🏢 **{company}**:")
-                    for drug in drugs:
-                        drug_info = f"  • {drug['drug']}"
-                        if drug['brand']:
-                            drug_info += f" ({drug['brand']})"
-                        if drug['target']:
-                            drug_info += f" - Target: {drug['target']}"
-                        if drug['mechanism']:
-                            drug_info += f" - {drug['mechanism']}"
-                        answer_parts.append(drug_info)
-                
-                answer_parts.append(f"\\n🏆📊 Data Source: Internal (Ground Truth + Database)")
-                return "\\n".join(answer_parts)
-            
-            return None
+            # Format answer
+            return self._format_fallback_answer(companies)
             
         except Exception as e:
             logger.error(f"Fallback search error: {e}")
@@ -1166,53 +1343,15 @@ Would you like me to search for more specific information in our internal databa
     def _extract_target_from_question(self, question: str) -> Optional[str]:
         """Extract target name from question dynamically."""
         try:
-            import re
-            
-            # Dynamic target patterns (no hardcoded target names)
-            target_patterns = [
-                r'\b([a-z]{2,}[1-9])\b',  # Pattern like HER2, TROP2, CD19, EGFR, BRAF, KRAS, etc.
-                r'\b([a-z]+-?[a-z]+[1-9]?)\b',  # Pattern like PD-L1, VEGF-A, etc.
-                r'\b([a-z]+\s+receptor\s+\d+)\b',  # Pattern like "tropomyosin receptor 2"
-                r'\b([a-z]+\s+antigen\s+\d+)\b',  # Pattern like "tumor antigen 2"
-                r'\b([a-z]+\s+factor\s+\d+)\b',  # Pattern like "growth factor 2"
-            ]
-            
             question_lower = question.lower()
-            for pattern in target_patterns:
-                matches = re.findall(pattern, question_lower)
-                if matches:
-                    # Filter out common non-target words and return the best match
-                    filtered_matches = []
-                    for match in matches:
-                        # Skip common words that aren't targets
-                        if match.lower() not in ['companies', 'company', 'target', 'targets', 'drugs', 'drug', 'how', 'many', 'with', 'competitive', 'landscape', 'phase', 'development', 'indication']:
-                            filtered_matches.append(match)
-                    
-                    if filtered_matches:
-                        # Return the longest match (most specific)
-                        best_match = max(filtered_matches, key=len)
-                        # Convert to uppercase for consistency
-                        return best_match.upper()
             
-            # If no pattern matches, try to extract capitalized words that look like targets
-            words = question.split()
-            potential_targets = []
+            # Try pattern-based extraction first
+            target = self._extract_targets_by_pattern(question_lower)
+            if target:
+                return target
             
-            # Dynamic stop words detection (no hardcoded list)
-            common_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'how', 'many', 'what', 'which', 'who', 'where', 'when', 'why'}
-            question_words = {word.lower() for word in words}
-            
-            for word in words:
-                # Look for words that are all caps or start with capital letter
-                if (word.isupper() and len(word) >= 2) or (word[0].isupper() and len(word) >= 3):
-                    # Skip common words dynamically
-                    if word.lower() not in common_words and word.lower() not in question_words:
-                        potential_targets.append(word.upper())
-            
-            if potential_targets:
-                return potential_targets[0]
-            
-            return None
+            # If no pattern matches, try capitalization-based extraction
+            return self._extract_targets_by_capitalization(question)
             
         except Exception as e:
             logger.error(f"Error extracting target from question: {e}")
@@ -1226,7 +1365,7 @@ Would you like me to search for more specific information in our internal databa
             "tools_count": len(self.tools),
             "tools": [tool.metadata.name for tool in self.tools],
             "memory_enabled": True,
-            "max_iterations": 5,
+            "max_iterations": 3,
             "vector_database": "ChromaDB",
             "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
             "capabilities": [

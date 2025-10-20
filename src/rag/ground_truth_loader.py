@@ -88,7 +88,7 @@ class GroundTruthLoader:
                     'score': score,
                     'match_fields': match_fields,
                     'partner': row['Partner'],
-                    'tickets': row['Tickets'],
+                    # 'tickets': row['Tickets'],  # Commented out - Tickets column not needed
                     'generic_name': row['Generic name'],
                     'brand_name': row['Brand name'],
                     'fda_approval': row['FDA Approval'],
@@ -97,7 +97,7 @@ class GroundTruthLoader:
                     'mechanism': row['Mechanism'],
                     'indication_approved': row['Indication Approved'],
                     'current_clinical_trials': row['Current Clinical Trials'],
-                    'business_priority': self._calculate_business_priority(row['Tickets']),
+                    # 'business_priority': self._calculate_business_priority(row['Tickets']),  # Commented out - Tickets column not needed
                     'data_quality': 'validated'
                 })
         
@@ -115,14 +115,14 @@ class GroundTruthLoader:
         
         # Group by partner to get company-level insights
         company_data = self._data.groupby('Partner').agg({
-            'Tickets': 'sum',
+            # 'Tickets': 'sum',  # Commented out - Tickets column not needed
             'Generic name': 'count',
             'FDA Approval': lambda x: (x.notna()).sum(),
             'Target': lambda x: x.nunique(),
             'Drug Class': lambda x: x.nunique()
         }).reset_index()
         
-        company_data.columns = ['partner', 'total_tickets', 'drug_count', 'fda_approved_count', 'unique_targets', 'unique_drug_classes']
+        company_data.columns = ['partner', 'drug_count', 'fda_approved_count', 'unique_targets', 'unique_drug_classes']
         
         for _, row in company_data.iterrows():
             if query_lower in str(row['partner']).lower():
@@ -132,18 +132,18 @@ class GroundTruthLoader:
                 results.append({
                     'source': 'ground_truth',
                     'partner': row['partner'],
-                    'total_tickets': row['total_tickets'],
+                    # 'total_tickets': row['total_tickets'],  # Commented out - Tickets column not needed
                     'drug_count': row['drug_count'],
                     'fda_approved_count': row['fda_approved_count'],
                     'unique_targets': row['unique_targets'],
                     'unique_drug_classes': row['unique_drug_classes'],
-                    'business_priority': self._calculate_business_priority(row['total_tickets']),
+                    # 'business_priority': self._calculate_business_priority(row['total_tickets']),  # Commented out - Tickets column not needed
                     'drug_portfolio': company_drugs[['Generic name', 'Brand name', 'FDA Approval', 'Target', 'Drug Class']].to_dict('records'),
                     'data_quality': 'validated'
                 })
         
-        # Sort by total tickets (business priority)
-        results.sort(key=lambda x: x['total_tickets'], reverse=True)
+        # Sort by drug count (removed tickets-based sorting)
+        results.sort(key=lambda x: x['drug_count'], reverse=True)
         return results[:limit]
     
     def search_targets(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
@@ -159,10 +159,10 @@ class GroundTruthLoader:
             'Generic name': 'count',
             'Partner': 'nunique',
             'FDA Approval': lambda x: (x.notna()).sum(),
-            'Tickets': 'sum'
+            # 'Tickets': 'sum'  # Commented out - Tickets column not needed
         }).reset_index()
         
-        target_data.columns = ['target', 'drug_count', 'company_count', 'fda_approved_count', 'total_tickets']
+        target_data.columns = ['target', 'drug_count', 'company_count', 'fda_approved_count']
         
         for _, row in target_data.iterrows():
             if pd.notna(row['target']) and query_lower in str(row['target']).lower():
@@ -175,14 +175,14 @@ class GroundTruthLoader:
                     'drug_count': row['drug_count'],
                     'company_count': row['company_count'],
                     'fda_approved_count': row['fda_approved_count'],
-                    'total_tickets': row['total_tickets'],
-                    'business_priority': self._calculate_business_priority(row['total_tickets']),
+                    # 'total_tickets': row['total_tickets'],  # Commented out - Tickets column not needed
+                    # 'business_priority': self._calculate_business_priority(row['total_tickets']),  # Commented out - Tickets column not needed
                     'targeting_drugs': target_drugs[['Generic name', 'Brand name', 'Partner', 'FDA Approval', 'Mechanism']].to_dict('records'),
                     'data_quality': 'validated'
                 })
         
-        # Sort by drug count and business priority
-        results.sort(key=lambda x: (x['drug_count'], x['total_tickets']), reverse=True)
+        # Sort by drug count (removed tickets-based sorting)
+        results.sort(key=lambda x: x['drug_count'], reverse=True)
         return results[:limit]
     
     def get_business_context(self, company_name: str) -> Optional[Dict[str, Any]]:
@@ -197,25 +197,29 @@ class GroundTruthLoader:
         
         return {
             'company': company_name,
-            'total_tickets': company_data['Tickets'].sum(),
+            # 'total_tickets': company_data['Tickets'].sum(),  # Commented out - Tickets column not needed
             'drug_count': len(company_data),
             'fda_approved_count': company_data['FDA Approval'].notna().sum(),
             'unique_targets': company_data['Target'].nunique(),
-            'business_priority': self._calculate_business_priority(company_data['Tickets'].sum()),
-            'drug_portfolio': company_data[['Generic name', 'Brand name', 'FDA Approval', 'Target', 'Drug Class', 'Tickets']].to_dict('records'),
+            # 'business_priority': self._calculate_business_priority(company_data['Tickets'].sum()),  # Commented out - Tickets column not needed
+            'drug_portfolio': company_data[['Generic name', 'Brand name', 'FDA Approval', 'Target', 'Drug Class']].to_dict('records'),
             'data_quality': 'validated'
         }
     
-    def _calculate_business_priority(self, tickets: int) -> str:
-        """Calculate business priority based on ticket count."""
-        if tickets >= 50:
-            return "High Priority"
-        elif tickets >= 20:
-            return "Medium Priority"
-        elif tickets >= 5:
-            return "Low Priority"
-        else:
-            return "Monitoring"
+    # def _calculate_business_priority(self, tickets: int) -> str:
+    #     """Calculate business priority based on ticket count."""
+    #     # Define priority thresholds
+    #     priority_thresholds = [
+    #         (50, "High Priority"),
+    #         (20, "Medium Priority"), 
+    #         (5, "Low Priority")
+    #     ]
+    #     
+    #     for threshold, priority in priority_thresholds:
+    #         if tickets >= threshold:
+    #             return priority
+    #     
+    #     return "Monitoring"
     
     def validate_pipeline_data(self, pipeline_drugs: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Validate pipeline data against ground truth."""
@@ -253,7 +257,3 @@ class GroundTruthLoader:
             'discrepancies': discrepancies,
             'match_rate': len(matches) / len(pipeline_drugs) if pipeline_drugs else 0
         }
-
-
-# Global instance for easy access
-ground_truth_loader = GroundTruthLoader()

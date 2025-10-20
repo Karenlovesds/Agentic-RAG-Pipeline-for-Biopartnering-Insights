@@ -1,12 +1,12 @@
 Comprehensive Drug Collection Summary
 ========================================
 
-Pipeline Drugs Found: 96
-FDA Documents: 1890
-Clinical Trial Documents: 7872
-Company Documents: 205
+Pipeline Drugs Found: 98
+FDA Documents: 2395
+Clinical Trial Documents: 10558
+Company Documents: 217
 Clinical Trials (Extracted): 1138
-Total Documents: 10890
+Total Documents: 14417
 Success: True
 
 Pipeline Drugs by Company:
@@ -18,75 +18,77 @@ Roche/Genentech:
     2. Alectinib
     3. Atezolizumab
     4. Avelumab
-    5. Bevacizumab
-    6. Blinatumomab
-    7. Cemiplimab
-    8. Ceritinib
-    9. Cevostamab
-   10. Cobimetinib
-   11. Codrituzumab
-   12. Crizotinib
-   13. Dasatinib
-   14. Durvalumab
-   15. Entrectinib
-   16. Glofitamab
-   17. Ifinatamab
-   18. Ipilimumab
-   19. Lorlatinib
-   20. Mosunetuzumab
-   21. Nemtabrutinib
-   22. Nivolumab
-   23. Obinutuzumab
-   24. Olaparib
-   25. Palbociclib
-   26. Pembrolizumab
-   27. Pertuzumab
-   28. Polatuzumab
-   29. Quavonlimab
-   30. Relatlimab
-   31. Ribociclib
-   32. Rituximab
-   33. Rucaparib
-   34. Sacituzumab
-   35. Talazoparib
-   36. Trastuzumab
-   37. Vemurafenib
-   38. Zilovertamab
-   39. abemaciclib
-   40. alectinib
-   41. atezolizumab
-   42. avelumab
-   43. belatacept
-   44. bevacizumab
-   45. blinatumomab
-   46. cemiplimab
-   47. ceritinib
-   48. cevostamab
-   49. codrituzumab
-   50. crizotinib
-   51. dasatinib
-   52. durvalumab
-   53. glofitamab
-   54. ifinatamab
-   55. ipilimumab
-   56. lorlatinib
-   57. mosunetuzumab
-   58. nemtabrutinib
-   59. niraparib
-   60. nivolumab
-   61. olaparib
-   62. palbociclib
-   63. pembrolizumab
-   64. polatuzumab
-   65. quavonlimab
-   66. relatlimab
-   67. ribociclib
-   68. rituximab
-   69. rucaparib
-   70. sacituzumab
-   71. talazoparib
-   72. trastuzumab
-   73. zilovertamab
+    5. Belatacept
+    6. Bevacizumab
+    7. Blinatumomab
+    8. Cemiplimab
+    9. Ceritinib
+   10. Cevostamab
+   11. Cobimetinib
+   12. Codrituzumab
+   13. Crizotinib
+   14. Dasatinib
+   15. Durvalumab
+   16. Entrectinib
+   17. Glofitamab
+   18. Ifinatamab
+   19. Ipilimumab
+   20. Lorlatinib
+   21. Mosunetuzumab
+   22. Nemtabrutinib
+   23. Niraparib
+   24. Nivolumab
+   25. Obinutuzumab
+   26. Olaparib
+   27. Palbociclib
+   28. Pembrolizumab
+   29. Pertuzumab
+   30. Polatuzumab
+   31. Quavonlimab
+   32. Relatlimab
+   33. Ribociclib
+   34. Rituximab
+   35. Rucaparib
+   36. Sacituzumab
+   37. Talazoparib
+   38. Trastuzumab
+   39. Vemurafenib
+   40. Zilovertamab
+   41. abemaciclib
+   42. alectinib
+   43. atezolizumab
+   44. avelumab
+   45. belatacept
+   46. bevacizumab
+   47. blinatumomab
+   48. cemiplimab
+   49. ceritinib
+   50. cevostamab
+   51. codrituzumab
+   52. crizotinib
+   53. dasatinib
+   54. durvalumab
+   55. glofitamab
+   56. ifinatamab
+   57. ipilimumab
+   58. lorlatinib
+   59. mosunetuzumab
+   60. nemtabrutinib
+   61. niraparib
+   62. nivolumab
+   63. olaparib
+   64. palbociclib
+   65. pembrolizumab
+   66. polatuzumab
+   67. quavonlimab
+   68. relatlimab
+   69. ribociclib
+   70. rituximab
+   71. rucaparib
+   72. sacituzumab
+   73. talazoparib
+   74. trastuzumab
+   75. zilovertamab
 
 Amgen:
 ------
@@ -156,7 +158,7 @@ ImClone LLC:
 
 Summary by Company:
 ====================
-  Roche/Genentech: 73 drugs
+  Roche/Genentech: 75 drugs
   Pfizer Laboratories Div Pfizer Inc: 0 drugs
   Amgen: 3 drugs
   Daiichi Sankyo: 1 drugs

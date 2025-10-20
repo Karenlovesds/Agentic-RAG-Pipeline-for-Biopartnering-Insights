@@ -11,7 +11,6 @@ This implementation provides:
 
 from __future__ import annotations
 
-from typing import List, Dict, Set
 from loguru import logger
 from sqlalchemy.orm import Session
 import re
@@ -145,31 +144,52 @@ def ensure_companies(db: Session) -> int:
     return count_created
 
 
-def extract_drugs_from_documents(db: Session) -> int:
+def extract_drugs_from_documents(db: Session, batch_size: int = 100) -> int:
+    """Extract drugs from documents using batch processing to reduce memory usage."""
     created = 0
-    docs = db.query(Document).all()
     companies = {c.name: c.id for c in db.query(Company).all()}
-    for doc in docs:
-        text = (doc.content or "").lower()
-        for kw in COMMON_DRUG_KEYWORDS:
-            if kw in text:
-                # Use first company found in doc title/url as a naive owner
-                owner_id = None
-                for cname, cid in companies.items():
-                    if (doc.title and cname.lower() in doc.title.lower()) or cname.lower() in doc.source_url.lower():
-                        owner_id = cid
-                        break
-                # Check if this specific drug-company combination already exists
-                existing_drug = db.query(Drug).filter(
-                    Drug.generic_name == kw,
-                    Drug.company_id == (owner_id or list(companies.values())[0])
-                ).first()
-                
-                if not existing_drug:
-                    db.add(Drug(generic_name=kw, company_id=owner_id or list(companies.values())[0]))
-                    created += 1
-    if created:
-        db.commit()
+    
+    # Get total count for progress tracking
+    total_docs = db.query(Document).count()
+    logger.info(f"Processing {total_docs} documents in batches of {batch_size}")
+    
+    # Process documents in batches
+    offset = 0
+    while offset < total_docs:
+        docs = db.query(Document).offset(offset).limit(batch_size).all()
+        if not docs:
+            break
+            
+        logger.info(f"Processing batch {offset//batch_size + 1}: documents {offset+1}-{min(offset+batch_size, total_docs)}")
+        
+        for doc in docs:
+            text = (doc.content or "").lower()
+            for kw in COMMON_DRUG_KEYWORDS:
+                if kw in text:
+                    # Use first company found in doc title/url as a naive owner
+                    owner_id = None
+                    for cname, cid in companies.items():
+                        if (doc.title and cname.lower() in doc.title.lower()) or cname.lower() in doc.source_url.lower():
+                            owner_id = cid
+                            break
+                    # Check if this specific drug-company combination already exists
+                    existing_drug = db.query(Drug).filter(
+                        Drug.generic_name == kw,
+                        Drug.company_id == (owner_id or list(companies.values())[0])
+                    ).first()
+                    
+                    if not existing_drug:
+                        db.add(Drug(generic_name=kw, company_id=owner_id or list(companies.values())[0]))
+                        created += 1
+        
+        # Commit batch and clear memory
+        if created > 0:
+            db.commit()
+            logger.info(f"Created {created} drugs in this batch")
+        
+        offset += batch_size
+    
+    logger.info(f"Total drugs created: {created}")
     return created
 
 
@@ -190,40 +210,57 @@ def link_trials_to_companies(db: Session) -> int:
     return updates
 
 
-def extract_targets_from_documents(db: Session) -> int:
-    """Extract targets from documents and create target entities."""
+def extract_targets_from_documents(db: Session, batch_size: int = 100) -> int:
+    """Extract targets from documents and create target entities using batch processing."""
     targets_created = 0
-    docs = db.query(Document).all()
     
-    for doc in docs:
-        content = doc.content or ""
-        found_targets = set()
-        
-        # Look for targets in the content using regex patterns
-        for target in COMMON_TARGETS:
-            # Case-insensitive search with word boundaries
-            pattern = r'\b' + re.escape(target) + r'\b'
-            if re.search(pattern, content, re.IGNORECASE):
-                found_targets.add(target)
-        
-        # Create target entities
-        for target_name in found_targets:
-            existing_target = db.query(Target).filter(
-                Target.name.ilike(f"%{target_name}%")
-            ).first()
+    # Get total count for progress tracking
+    total_docs = db.query(Document).count()
+    logger.info(f"Processing {total_docs} documents for target extraction in batches of {batch_size}")
+    
+    # Process documents in batches
+    offset = 0
+    while offset < total_docs:
+        docs = db.query(Document).offset(offset).limit(batch_size).all()
+        if not docs:
+            break
             
-            if not existing_target:
-                target = Target(
-                    name=target_name,
-                    target_type="protein",  # Default type
-                    description=f"Target found in document: {doc.title or 'Unknown'}"
-                )
-                db.add(target)
-                targets_created += 1
+        logger.info(f"Processing batch {offset//batch_size + 1}: documents {offset+1}-{min(offset+batch_size, total_docs)}")
+        
+        for doc in docs:
+            content = doc.content or ""
+            found_targets = set()
+            
+            # Look for targets in the content using regex patterns
+            for target in COMMON_TARGETS:
+                # Case-insensitive search with word boundaries
+                pattern = r'\b' + re.escape(target) + r'\b'
+                if re.search(pattern, content, re.IGNORECASE):
+                    found_targets.add(target)
+            
+            # Create target entities
+            for target_name in found_targets:
+                existing_target = db.query(Target).filter(
+                    Target.name.ilike(f"%{target_name}%")
+                ).first()
+                
+                if not existing_target:
+                    target = Target(
+                        name=target_name,
+                        target_type="protein",  # Default type
+                        description=f"Target found in document: {doc.title or 'Unknown'}"
+                    )
+                    db.add(target)
+                    targets_created += 1
+        
+        # Commit batch and clear memory
+        if targets_created > 0:
+            db.commit()
+            logger.info(f"Created {targets_created} targets in this batch")
+        
+        offset += batch_size
     
-    if targets_created:
-        db.commit()
-    
+    logger.info(f"Total targets created: {targets_created}")
     return targets_created
 
 
@@ -284,91 +321,174 @@ def extract_targets_from_drug_names(db: Session) -> int:
     
     for drug in drugs:
         drug_name = drug.generic_name.lower()
-        found_targets = set()
-        
-        # Pattern matching for drug names
-        if drug_name.endswith('mab'):
-            # Monoclonal antibodies - extract target from name
-            if 'pembro' in drug_name or 'keytruda' in drug_name:
-                found_targets.add('PD-1')
-            elif 'nivo' in drug_name or 'opdivo' in drug_name:
-                found_targets.add('PD-1')
-            elif 'trastu' in drug_name or 'herceptin' in drug_name:
-                found_targets.add('HER2')
-            elif 'bevaci' in drug_name or 'avastin' in drug_name:
-                found_targets.add('VEGF')
-            elif 'rituxi' in drug_name or 'rituxan' in drug_name:
-                found_targets.add('CD20')
-            elif 'ipili' in drug_name or 'yervoy' in drug_name:
-                found_targets.add('CTLA-4')
-            elif 'atezo' in drug_name or 'tecentriq' in drug_name:
-                found_targets.add('PD-L1')
-            elif 'durva' in drug_name or 'imfinzi' in drug_name:
-                found_targets.add('PD-L1')
-            elif 'avelu' in drug_name or 'bavencio' in drug_name:
-                found_targets.add('PD-L1')
-        
-        elif drug_name.endswith('nib'):
-            # Kinase inhibitors
-            if 'palbo' in drug_name or 'ibrance' in drug_name:
-                found_targets.update(['CDK4', 'CDK6'])
-            elif 'ribo' in drug_name or 'kisqali' in drug_name:
-                found_targets.update(['CDK4', 'CDK6'])
-            elif 'abema' in drug_name or 'verzenio' in drug_name:
-                found_targets.update(['CDK4', 'CDK6'])
-            elif 'olapa' in drug_name or 'lynparza' in drug_name:
-                found_targets.add('PARP')
-            elif 'ruca' in drug_name or 'rubraca' in drug_name:
-                found_targets.add('PARP')
-            elif 'nira' in drug_name or 'zejula' in drug_name:
-                found_targets.add('PARP')
-            elif 'tala' in drug_name or 'talzenna' in drug_name:
-                found_targets.add('PARP')
-            elif 'dasa' in drug_name or 'sprycel' in drug_name:
-                found_targets.update(['BCR-ABL', 'SRC'])
-            elif 'crizo' in drug_name or 'xalkori' in drug_name:
-                found_targets.update(['ALK', 'ROS1', 'MET'])
-            elif 'alec' in drug_name or 'alecensa' in drug_name:
-                found_targets.add('ALK')
-            elif 'ceri' in drug_name or 'zykadia' in drug_name:
-                found_targets.add('ALK')
-            elif 'lorla' in drug_name or 'lorviqua' in drug_name:
-                found_targets.add('ALK')
+        found_targets = _extract_targets_from_drug_name(drug_name)
         
         # Create targets and relationships
-        for target_name in found_targets:
-            target = db.query(Target).filter(
-                Target.name.ilike(f"%{target_name}%")
-            ).first()
-            
-            if not target:
-                target = Target(
-                    name=target_name,
-                    target_type="protein",
-                    description=f"Target extracted from drug name: {drug.generic_name}"
-                )
-                db.add(target)
-                db.flush()
-                targets_created += 1
-            
-            # Create relationship if it doesn't exist
-            existing_rel = db.query(DrugTarget).filter(
-                DrugTarget.drug_id == drug.id,
-                DrugTarget.target_id == target.id
-            ).first()
-            
-            if not existing_rel:
-                drug_target = DrugTarget(
-                    drug_id=drug.id,
-                    target_id=target.id,
-                    relationship_type="inhibits"
-                )
-                db.add(drug_target)
+        targets_created += _create_targets_and_relationships(db, drug, found_targets)
     
     if targets_created:
         db.commit()
     
     return targets_created
+
+
+def _extract_targets_from_drug_name(drug_name: str) -> set:
+    """Extract target names from drug name using pattern matching."""
+    found_targets = set()
+    
+    # Monoclonal antibodies
+    if drug_name.endswith('mab'):
+        found_targets.update(_extract_mab_targets(drug_name))
+    
+    # Kinase inhibitors
+    elif drug_name.endswith('nib'):
+        found_targets.update(_extract_nib_targets(drug_name))
+    
+    return found_targets
+
+
+def _extract_mab_targets(drug_name: str) -> set:
+    """Extract targets for monoclonal antibodies using a mapping approach."""
+    # Drug keyword to targets mapping
+    drug_target_mapping = {
+        # PD-1 inhibitors
+        'pembro': ['PD-1'],
+        'keytruda': ['PD-1'],
+        'nivo': ['PD-1'],
+        'opdivo': ['PD-1'],
+        
+        # HER2 inhibitors
+        'trastu': ['HER2'],
+        'herceptin': ['HER2'],
+        
+        # VEGF inhibitors
+        'bevaci': ['VEGF'],
+        'avastin': ['VEGF'],
+        
+        # CD20 inhibitors
+        'rituxi': ['CD20'],
+        'rituxan': ['CD20'],
+        
+        # CTLA-4 inhibitors
+        'ipili': ['CTLA-4'],
+        'yervoy': ['CTLA-4'],
+        
+        # PD-L1 inhibitors
+        'atezo': ['PD-L1'],
+        'tecentriq': ['PD-L1'],
+        'durva': ['PD-L1'],
+        'imfinzi': ['PD-L1'],
+        'avelu': ['PD-L1'],
+        'bavencio': ['PD-L1'],
+    }
+    
+    targets = set()
+    
+    # Check each keyword in the drug name
+    for keyword, target_list in drug_target_mapping.items():
+        if keyword in drug_name:
+            targets.update(target_list)
+            break  # Only match the first found keyword
+    
+    return targets
+
+
+def _extract_nib_targets(drug_name: str) -> set:
+    """Extract targets for kinase inhibitors using a mapping approach."""
+    # Drug keyword to targets mapping
+    drug_target_mapping = {
+        # CDK4/6 inhibitors
+        'palbo': ['CDK4', 'CDK6'],
+        'ibrance': ['CDK4', 'CDK6'],
+        'ribo': ['CDK4', 'CDK6'],
+        'kisqali': ['CDK4', 'CDK6'],
+        'abema': ['CDK4', 'CDK6'],
+        'verzenio': ['CDK4', 'CDK6'],
+        
+        # PARP inhibitors
+        'olapa': ['PARP'],
+        'lynparza': ['PARP'],
+        'ruca': ['PARP'],
+        'rubraca': ['PARP'],
+        'nira': ['PARP'],
+        'zejula': ['PARP'],
+        'tala': ['PARP'],
+        'talzenna': ['PARP'],
+        
+        # BCR-ABL/SRC inhibitors
+        'dasa': ['BCR-ABL', 'SRC'],
+        'sprycel': ['BCR-ABL', 'SRC'],
+        
+        # ALK/ROS1/MET inhibitors
+        'crizo': ['ALK', 'ROS1', 'MET'],
+        'xalkori': ['ALK', 'ROS1', 'MET'],
+        
+        # ALK inhibitors
+        'alec': ['ALK'],
+        'alecensa': ['ALK'],
+        'ceri': ['ALK'],
+        'zykadia': ['ALK'],
+        'lorla': ['ALK'],
+        'lorviqua': ['ALK'],
+    }
+    
+    targets = set()
+    
+    # Check each keyword in the drug name
+    for keyword, target_list in drug_target_mapping.items():
+        if keyword in drug_name:
+            targets.update(target_list)
+            break  # Only match the first found keyword
+    
+    return targets
+
+
+def _create_targets_and_relationships(db: Session, drug: Drug, found_targets: set) -> int:
+    """Create target entities and drug-target relationships."""
+    targets_created = 0
+    
+    for target_name in found_targets:
+        target = _get_or_create_target(db, target_name, drug.generic_name)
+        if target:
+            targets_created += 1
+        
+        _create_drug_target_relationship(db, drug, target)
+    
+    return targets_created
+
+
+def _get_or_create_target(db: Session, target_name: str, drug_name: str) -> Target:
+    """Get existing target or create new one."""
+    target = db.query(Target).filter(
+        Target.name.ilike(f"%{target_name}%")
+    ).first()
+    
+    if not target:
+        target = Target(
+            name=target_name,
+            target_type="protein",
+            description=f"Target extracted from drug name: {drug_name}"
+        )
+        db.add(target)
+        db.flush()
+    
+    return target
+
+
+def _create_drug_target_relationship(db: Session, drug: Drug, target: Target) -> None:
+    """Create drug-target relationship if it doesn't exist."""
+    existing_rel = db.query(DrugTarget).filter(
+        DrugTarget.drug_id == drug.id,
+        DrugTarget.target_id == target.id
+    ).first()
+    
+    if not existing_rel:
+        drug_target = DrugTarget(
+            drug_id=drug.id,
+            target_id=target.id,
+            relationship_type="inhibits"
+        )
+        db.add(drug_target)
 
 
 def link_clinical_trials_to_drugs(db: Session) -> int:
@@ -516,7 +636,6 @@ def generate_drug_summary(db: Session) -> str:
     try:
         # Get counts
         total_drugs = db.query(Drug).count()
-        total_companies = db.query(Company).count()
         total_trials = db.query(ClinicalTrial).count()
         total_targets = db.query(Target).count()
         
@@ -580,8 +699,8 @@ def populate_vector_database() -> dict:
             logger.info("Collection has existing data. Resetting...")
             vector_db.reset_collection()
         
-        # Populate database
-        vector_db.populate_database()
+        # Populate database with batch processing
+        vector_db.populate_database(batch_size=32)  # Use smaller batch size for embeddings
         
         # Get final stats
         final_stats = vector_db.get_collection_stats()
@@ -605,14 +724,17 @@ def populate_vector_database() -> dict:
         }
 
 
-def run_processing(db: Session) -> dict:
-    logger.info("Processing pipeline start")
+def run_processing(db: Session, batch_size: int = 100) -> dict:
+    """Run the complete processing pipeline with configurable batch size for memory optimization."""
+    logger.info(f"Processing pipeline start with batch size: {batch_size}")
+    
+    # Memory-optimized processing with batch sizes
     created_companies = ensure_companies(db)
-    created_drugs = extract_drugs_from_documents(db)
+    created_drugs = extract_drugs_from_documents(db, batch_size)
     linked_trials = link_trials_to_companies(db)
     
     # Extract targets from documents and drug names
-    targets_from_docs = extract_targets_from_documents(db)
+    targets_from_docs = extract_targets_from_documents(db, batch_size)
     targets_from_names = extract_targets_from_drug_names(db)
     
     # Backfill drug-target relationships
@@ -642,6 +764,7 @@ def run_processing(db: Session) -> dict:
         "deduplication": deduplication_results,
         "csv_generated": csv_results,
         "vector_database": vector_db_results,
+        "batch_size_used": batch_size
     }
 
 

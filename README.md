@@ -196,13 +196,8 @@ Agentic-RAG-Pipeline-for-Biopartnering-Insights/
 │   │   ├── comprehensive_entity_extractor.py
 │   │   ├── entity_extractor.py
 │   │   ├── pipeline.py
-│   │   └── csv_export.py
-│   ├── scripts/processing/       # Processing utilities
-│   │   ├── full_company_collection.py
-│   │   ├── improve_company_scraping.py
-│   │   ├── improved_company_data_collection.py
-│   │   ├── regenerate_drug_summary.py
-│   │   └── update_companies_pipeline_links.py
+│   │   ├── csv_export.py
+│   │   └── regenerate_drug_summary.py
 │   ├── rag/                      # RAG system
 │   │   ├── react_rag_agent.py
 │   │   ├── vector_db_manager.py

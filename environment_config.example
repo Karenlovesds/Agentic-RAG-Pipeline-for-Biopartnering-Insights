@@ -1,0 +1,106 @@
+# Environment Configuration for Agentic RAG Pipeline
+# Copy this file to .env and modify values as needed
+
+# =============================================================================
+# API CONFIGURATION
+# =============================================================================
+
+# FDA API Configuration
+FDA_BASE_URL=https://api.fda.gov
+FDA_DRUG_LABEL_ENDPOINT=/drug/label.json
+FDA_DRUG_EVENT_ENDPOINT=/drug/event.json
+FDA_DRUG_NDC_ENDPOINT=/drug/ndc.json
+FDA_ORANGE_BOOK_ENDPOINT=/drug/ndc.json
+FDA_DRUG_SHORTAGE_ENDPOINT=/drug/shortage.json
+
+# PubMed API Configuration
+PUBMED_BASE_URL=https://eutils.ncbi.nlm.nih.gov/entrez/eutils
+PUBMED_SEARCH_ENDPOINT=/esearch.fcgi
+PUBMED_FETCH_ENDPOINT=/efetch.fcgi
+PUBMED_SUMMARY_ENDPOINT=/esummary.fcgi
+
+# Clinical Trials API Configuration
+CLINICAL_TRIALS_BASE_URL=https://clinicaltrials.gov/api/v2
+CLINICAL_TRIALS_STUDIES_ENDPOINT=/studies
+CLINICAL_TRIALS_INTERVENTIONS_ENDPOINT=/interventions
+CLINICAL_TRIALS_CONDITIONS_ENDPOINT=/conditions
+
+# SEC API Configuration
+SEC_BASE_URL=https://data.sec.gov
+SEC_SUBMISSIONS_ENDPOINT=/submissions
+SEC_COMPANY_FACTS_ENDPOINT=/api/xbrl/companyfacts
+
+# Drugs.com Configuration
+DRUGS_COM_BASE_URL=https://www.drugs.com
+
+# =============================================================================
+# DATABASE CONFIGURATION
+# =============================================================================
+
+# Main Database
+DATABASE_URL=sqlite:///./biopartnering_insights.db
+
+# Vector Database
+VECTOR_DB_PATH=./vector_db
+CHROMA_PERSIST_DIRECTORY=./chroma_db
+
+# =============================================================================
+# API RATE LIMITS
+# =============================================================================
+
+# FDA API Rate Limits (requests per hour)
+FDA_RATE_LIMIT=1000
+
+# PubMed API Rate Limits (requests per second)
+PUBMED_RATE_LIMIT=3
+
+# Clinical Trials API Rate Limits (requests per hour)
+CLINICAL_TRIALS_RATE_LIMIT=100
+
+# =============================================================================
+# REQUEST CONFIGURATION
+# =============================================================================
+
+# Request Timeouts (seconds)
+REQUEST_TIMEOUT=30
+CONNECTION_TIMEOUT=10
+
+# Retry Configuration
+MAX_RETRIES=3
+RETRY_DELAY=1
+
+# =============================================================================
+# LOGGING CONFIGURATION
+# =============================================================================
+
+LOG_LEVEL=INFO
+LOG_FORMAT=%(asctime)s - %(name)s - %(levelname)s - %(message)s
+
+# =============================================================================
+# DATA PROCESSING CONFIGURATION
+# =============================================================================
+
+# Data Collection Limits
+MAX_ARTICLES_PER_DRUG=20
+MAX_CLINICAL_TRIALS_PER_DRUG=10
+
+# Confidence Thresholds
+CONFIDENCE_THRESHOLD=0.7
+
+# =============================================================================
+# MEMORY OPTIMIZATION
+# =============================================================================
+
+# Batch Processing Sizes
+DOCUMENT_BATCH_SIZE=100
+EMBEDDING_BATCH_SIZE=32
+
+# =============================================================================
+# DEVELOPMENT/DEBUGGING
+# =============================================================================
+
+# Set to DEBUG for more verbose logging
+# LOG_LEVEL=DEBUG
+
+# Set to True to enable debug mode
+# DEBUG_MODE=False

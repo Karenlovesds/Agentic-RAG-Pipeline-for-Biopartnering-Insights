@@ -36,7 +36,7 @@ from src.evaluation.feedback_analyzer import (
 )
 from src.analysis.market_analysis_dashboard import main_market_analysis_dashboard
 from src.analysis.overlap_dashboard import main_overlap_dashboard
-from src.analysis.ticket_analysis_dashboard import main_ticket_analysis_dashboard
+# from src.analysis.ticket_analysis_dashboard import main_ticket_analysis_dashboard  # Commented out - ticket analysis removed
 from src.rag.ground_truth_loader import GroundTruthLoader
 
 
@@ -336,7 +336,7 @@ def main():
         st.header("Navigation")
         page = st.selectbox(
             "Select Page",
-            ["Dashboard", "Data Collection", "Agentic RAG", "Ground Truth", "Market Analysis", "Overlap Analysis", "Business Analysis", "Results", "Evaluation", "Feedback Analytics", "Settings"]
+            ["Dashboard", "Data Collection", "Agentic RAG", "Ground Truth", "Market Analysis", "Overlap Analysis", "Results", "Evaluation", "Feedback Analytics", "Settings"]
         )
         
         st.header("Database Status")
@@ -386,8 +386,8 @@ def main():
         main_market_analysis_dashboard()
     elif page == "Overlap Analysis":
         main_overlap_dashboard()
-    elif page == "Business Analysis":
-        show_business_analysis()
+    # elif page == "Business Analysis":  # Commented out - ticket analysis removed
+    #     show_business_analysis()
     elif page == "Results":
         show_results()
     elif page == "Evaluation":
@@ -1575,46 +1575,46 @@ def show_evaluation():
     """)
 
 
-def show_business_analysis():
-    """Show password-protected business analysis dashboard."""
-    
-    # Password protection
-    if "business_analysis_authenticated" not in st.session_state:
-        st.session_state.business_analysis_authenticated = False
-    
-    if not st.session_state.business_analysis_authenticated:
-        st.header("🔒 Business Analysis Dashboard")
-        st.markdown("This dashboard contains sensitive business intelligence and requires authentication.")
-        
-        # Password input
-        password = st.text_input("Enter password:", type="password", help="Contact administrator for access")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🔓 Access Dashboard"):
-                if password == "biopartner2024":  # Change this to your desired password
-                    st.session_state.business_analysis_authenticated = True
-                    st.rerun()
-                else:
-                    st.error("❌ Incorrect password. Please try again.")
-        
-        with col2:
-            if st.button("🔒 Lock Dashboard"):
-                st.session_state.business_analysis_authenticated = False
-                st.rerun()
-        
-        # Security notice
-        st.info("🔐 **Security Notice:** This dashboard contains confidential business data. Access is restricted to authorized personnel only.")
-        
-        return
-    
-    # Show logout option
-    if st.button("🔒 Logout", help="Lock the dashboard"):
-        st.session_state.business_analysis_authenticated = False
-        st.rerun()
-    
-    # Show the actual dashboard
-    main_ticket_analysis_dashboard()
+# def show_business_analysis():
+#     """Show password-protected business analysis dashboard."""
+#     
+#     # Password protection
+#     if "business_analysis_authenticated" not in st.session_state:
+#         st.session_state.business_analysis_authenticated = False
+#     
+#     if not st.session_state.business_analysis_authenticated:
+#         st.header("🔒 Business Analysis Dashboard")
+#         st.markdown("This dashboard contains sensitive business intelligence and requires authentication.")
+#         
+#         # Password input
+#         password = st.text_input("Enter password:", type="password", help="Contact administrator for access")
+#         
+#         col1, col2 = st.columns(2)
+#         with col1:
+#             if st.button("🔓 Access Dashboard"):
+#                 if password == "biopartner2024":  # Change this to your desired password
+#                     st.session_state.business_analysis_authenticated = True
+#                     st.rerun()
+#                 else:
+#                     st.error("❌ Incorrect password. Please try again.")
+#         
+#         with col2:
+#             if st.button("🔒 Lock Dashboard"):
+#                 st.session_state.business_analysis_authenticated = False
+#                 st.rerun()
+#         
+#         # Security notice
+#         st.info("🔐 **Security Notice:** This dashboard contains confidential business data. Access is restricted to authorized personnel only.")
+#         
+#         return
+#     
+#     # Show logout option
+#     if st.button("🔒 Logout", help="Lock the dashboard"):
+#         st.session_state.business_analysis_authenticated = False
+#         st.rerun()
+#     
+#     # Show the actual dashboard
+#     main_ticket_analysis_dashboard()
 
 
 def show_ground_truth():

@@ -3,18 +3,23 @@
 import asyncio
 import re
 from typing import List, Dict, Any, Optional
+from datetime import datetime
 from loguru import logger
 from crawl4ai import AsyncWebCrawler
 from bs4 import BeautifulSoup
 from .base_collector import BaseCollector, CollectedData
+from .sec_filings_extractor import SECFilingsExtractor
+from .data_validator import DataValidator
 from config.config import get_target_companies
 
 
 class CompanyWebsiteCollector(BaseCollector):
-    """Collector for company website data using crawl4AI."""
+    """Enhanced collector for company website data using crawl4AI with SEC filings integration."""
     
     def __init__(self):
         super().__init__("company_websites", "")
+        self.sec_extractor = SECFilingsExtractor()
+        self.data_validator = DataValidator()
     
     async def collect_data(self, max_companies: int = 5) -> List[CollectedData]:
         """Collect comprehensive data from company websites focusing on pipelines and development."""
@@ -30,23 +35,282 @@ class CompanyWebsiteCollector(BaseCollector):
                 try:
                     logger.info(f"Collecting comprehensive data for {company}...")
                     
-                    # Get company website
-                    website_url = self._get_company_website(company)
-                    if not website_url:
-                        logger.warning(f"No website found for {company}, skipping...")
+                    # Get company URLs
+                    company_urls = self._get_company_urls(company)
+                    if not company_urls:
+                        logger.warning(f"No URLs found for {company}, skipping...")
                         continue
                     
                     # Collect data from multiple page types
-                    company_data = await self._collect_company_comprehensive_data(crawler, company, website_url)
-                    collected_data.extend(company_data)
+                    company_data = await self._collect_company_comprehensive_data(crawler, company, company_urls)
                     
-                    logger.info(f"✅ Completed comprehensive collection for {company}")
+                    # Extract SEC filings for additional pipeline information
+                    sec_data = await self._collect_sec_filings_data(company)
+                    
+                    # Extract drug names for validation
+                    extracted_drugs = self._extract_drug_names_from_data(company_data, sec_data)
+                    
+                    # Validate drugs comprehensively
+                    if extracted_drugs:
+                        validated_data = await self._validate_drugs_comprehensively(extracted_drugs, company)
+                        collected_data.extend(validated_data)
+                    
+                    # Combine website and SEC data
+                    combined_data = self._combine_website_and_sec_data(company_data, sec_data, company)
+                    collected_data.extend(combined_data)
+                    
+                    logger.info(f"✅ Completed comprehensive collection for {company} (website + SEC filings + validation)")
                         
                 except Exception as e:
                     logger.error(f"Error collecting data for {company}: {e}")
                     continue
         
         return collected_data
+
+    async def _collect_sec_filings_data(self, company: str) -> List[CollectedData]:
+        """Collect SEC filings data for a company."""
+        try:
+            logger.info(f"Collecting SEC filings data for {company}")
+            
+            # Extract pipeline information from SEC filings
+            sec_filings = await self.sec_extractor.extract_pipeline_from_filings(company, max_filings=5)
+            
+            collected_data = []
+            for filing in sec_filings:
+                if filing.extracted_pipeline_info:
+                    # Create content from extracted pipeline information
+                    content_parts = [
+                        f"SEC Filing Pipeline Information for {company}",
+                        f"Filing Type: {filing.filing_type}",
+                        f"Filing Date: {filing.filing_date}",
+                        f"Accession Number: {filing.accession_number}",
+                        f"Confidence Score: {filing.confidence_score:.2f}",
+                        "",
+                        "Extracted Pipeline Information:",
+                        ""
+                    ]
+                    
+                    for pipeline_info in filing.extracted_pipeline_info:
+                        content_parts.extend([
+                            f"Drug: {pipeline_info['drug_name']}",
+                            f"  Development Stage: {pipeline_info.get('development_stage', 'N/A')}",
+                            f"  Indication: {pipeline_info.get('indication', 'N/A')}",
+                            f"  Target: {pipeline_info.get('target', 'N/A')}",
+                            f"  Phase: {pipeline_info.get('phase', 'N/A')}",
+                            f"  Status: {pipeline_info.get('status', 'N/A')}",
+                            f"  Mechanism of Action: {pipeline_info.get('mechanism_of_action', 'N/A')}",
+                            f"  Confidence: {pipeline_info.get('extraction_confidence', 0.0):.2f}",
+                            ""
+                        ])
+                    
+                    content = "\n".join(content_parts)
+                    
+                    collected_data.append(CollectedData(
+                        title=f"SEC Filing - {filing.filing_type} - {company}",
+                        content=content,
+                        source_url=filing.document_url,
+                        source_type="sec_filing",
+                        metadata={
+                            "company": company,
+                            "filing_type": filing.filing_type,
+                            "filing_date": filing.filing_date,
+                            "accession_number": filing.accession_number,
+                            "pipeline_entries": len(filing.extracted_pipeline_info),
+                            "confidence_score": filing.confidence_score
+                        }
+                    ))
+            
+            logger.info(f"✅ Collected SEC filings data for {company}: {len(collected_data)} filings")
+            return collected_data
+            
+        except Exception as e:
+            logger.error(f"Error collecting SEC filings data for {company}: {e}")
+            return []
+
+    def _combine_website_and_sec_data(self, website_data: List[CollectedData], sec_data: List[CollectedData], company: str) -> List[CollectedData]:
+        """Combine website and SEC filings data."""
+        combined_data = []
+        
+        # Add website data
+        combined_data.extend(website_data)
+        
+        # Add SEC data
+        combined_data.extend(sec_data)
+        
+        # Create a summary entry if both sources have data
+        if website_data and sec_data:
+            summary_content = self._create_combined_summary(website_data, sec_data, company)
+            combined_data.append(CollectedData(
+                title=f"Combined Data Summary - {company}",
+                content=summary_content,
+                source_url="",
+                source_type="combined_summary",
+                metadata={
+                    "company": company,
+                    "website_entries": len(website_data),
+                    "sec_entries": len(sec_data),
+                    "total_entries": len(combined_data)
+                }
+            ))
+        
+        return combined_data
+
+    def _create_combined_summary(self, website_data: List[CollectedData], sec_data: List[CollectedData], company: str) -> str:
+        """Create a summary of combined website and SEC data."""
+        summary_parts = [
+            f"Combined Data Summary for {company}",
+            f"Collection Date: {asyncio.get_event_loop().time()}",
+            "",
+            f"Website Data Entries: {len(website_data)}",
+            f"SEC Filings Entries: {len(sec_data)}",
+            "",
+            "Data Sources:",
+            "- Company Website (pipeline, clinical trials, products)",
+            "- SEC Filings (10-K, 10-Q, 8-K reports)",
+            "",
+            "This combined dataset provides comprehensive pipeline information",
+            "from both public website content and official regulatory filings.",
+            ""
+        ]
+        
+        # Extract unique drug names from both sources
+        all_drugs = set()
+        
+        # Extract from website data
+        for data in website_data:
+            if "drug" in data.content.lower():
+                # Simple drug extraction for summary
+                drug_matches = re.findall(r'\b[A-Z][a-z]+mab\b|\b[A-Z][a-z]+nib\b|\b[A-Z][a-z]+tinib\b', data.content)
+                all_drugs.update(drug_matches)
+        
+        # Extract from SEC data
+        for data in sec_data:
+            if "drug" in data.content.lower():
+                drug_matches = re.findall(r'\b[A-Z][a-z]+mab\b|\b[A-Z][a-z]+nib\b|\b[A-Z][a-z]+tinib\b', data.content)
+                all_drugs.update(drug_matches)
+        
+        if all_drugs:
+            summary_parts.extend([
+                f"Unique Drugs Identified: {len(all_drugs)}",
+                f"Drug Names: {', '.join(sorted(all_drugs)[:10])}" + ("..." if len(all_drugs) > 10 else ""),
+                ""
+            ])
+        
+        return "\n".join(summary_parts)
+
+    def _extract_drug_names_from_data(self, website_data: List[CollectedData], sec_data: List[CollectedData]) -> List[str]:
+        """Extract drug names from collected data."""
+        drug_names = set()
+        
+        # Extract from website data
+        for data in website_data:
+            if "drug" in data.content.lower():
+                # Simple drug extraction for validation
+                drug_matches = re.findall(r'\b[A-Z][a-z]+mab\b|\b[A-Z][a-z]+nib\b|\b[A-Z][a-z]+tinib\b', data.content)
+                drug_names.update(drug_matches)
+        
+        # Extract from SEC data
+        for data in sec_data:
+            if "drug" in data.content.lower():
+                drug_matches = re.findall(r'\b[A-Z][a-z]+mab\b|\b[A-Z][a-z]+nib\b|\b[A-Z][a-z]+tinib\b', data.content)
+                drug_names.update(drug_matches)
+        
+        return list(drug_names)
+
+    async def _validate_drugs_comprehensively(self, drug_names: List[str], company: str) -> List[CollectedData]:
+        """Validate drugs comprehensively using all sources."""
+        try:
+            logger.info(f"Validating {len(drug_names)} drugs comprehensively for {company}")
+            
+            # Use data validator for comprehensive validation
+            comprehensive_data, validation_report = await self.data_validator.validate_drug_list_comprehensive(drug_names, company)
+            
+            collected_data = []
+            
+            # Create collected data entries for each validated drug
+            for drug_data in comprehensive_data:
+                content_parts = [
+                    f"Comprehensive Drug Validation Report for {drug_data.drug_name}",
+                    f"Company: {company}",
+                    f"Overall Confidence: {drug_data.overall_confidence:.3f}",
+                    f"Data Sources: {', '.join(drug_data.data_sources)}",
+                    "",
+                    "Validation Results:",
+                    ""
+                ]
+                
+                for result in drug_data.validation_results:
+                    status_icon = "✅" if result.validation_status == "validated" else "⚠️" if result.validation_status == "partial" else "❌"
+                    content_parts.append(f"{status_icon} {result.source}: {result.confidence_score:.3f} ({result.validation_status})")
+                
+                content_parts.extend([
+                    "",
+                    f"Targets Found: {len(drug_data.targets)}",
+                    f"Indications Found: {len(drug_data.indications)}",
+                    f"Pipeline Entries: {len(drug_data.pipeline_info)}",
+                    f"SEC Filings: {len(drug_data.sec_filings)}",
+                    ""
+                ])
+                
+                # Add top targets
+                if drug_data.targets:
+                    content_parts.extend([
+                        "Top Targets:",
+                        ""
+                    ])
+                    for target in drug_data.targets[:5]:
+                        content_parts.append(f"- {target.target_name} ({target.target_type}) - {target.confidence_score:.3f}")
+                    content_parts.append("")
+                
+                # Add top indications
+                if drug_data.indications:
+                    content_parts.extend([
+                        "Top Indications:",
+                        ""
+                    ])
+                    for indication in drug_data.indications[:5]:
+                        status = "Approved" if indication.approval_status else "Investigational"
+                        content_parts.append(f"- {indication.indication} ({status}) - {indication.confidence_score:.3f}")
+                    content_parts.append("")
+                
+                content = "\n".join(content_parts)
+                
+                collected_data.append(CollectedData(
+                    title=f"Comprehensive Validation - {drug_data.drug_name}",
+                    content=content,
+                    source_url="",
+                    source_type="comprehensive_validation",
+                    metadata={
+                        "company": company,
+                        "drug_name": drug_data.drug_name,
+                        "overall_confidence": drug_data.overall_confidence,
+                        "data_sources": drug_data.data_sources,
+                        "targets_count": len(drug_data.targets),
+                        "indications_count": len(drug_data.indications),
+                        "pipeline_entries": len(drug_data.pipeline_info),
+                        "sec_filings": len(drug_data.sec_filings)
+                    }
+                ))
+            
+            # Add validation report as a separate entry
+            collected_data.append(CollectedData(
+                title=f"Validation Report - {company}",
+                content=validation_report,
+                source_url="",
+                source_type="validation_report",
+                metadata={
+                    "company": company,
+                    "drugs_validated": len(drug_names),
+                    "validation_timestamp": datetime.now().isoformat()
+                }
+            ))
+            
+            logger.info(f"✅ Completed comprehensive validation for {company}: {len(collected_data)} entries")
+            return collected_data
+            
+        except Exception as e:
+            logger.error(f"Error in comprehensive validation for {company}: {e}")
+            return []
 
     async def collect_pipeline_drugs(self, max_companies: int = 10) -> List[str]:
         """Collect drug names specifically from company pipeline pages."""
@@ -63,13 +327,13 @@ class CompanyWebsiteCollector(BaseCollector):
                     logger.info(f"Collecting pipeline drugs for {company}...")
                     
                     # Get company website
-                    website_url = self._get_company_website(company)
-                    if not website_url:
-                        logger.warning(f"No website found for {company}, skipping...")
+                    company_urls = self._get_company_urls(company)
+                    if not company_urls:
+                        logger.warning(f"No URLs found for {company}, skipping...")
                         continue
                     
                     # Find and scrape pipeline pages
-                    drug_nct_mapping = await self._extract_pipeline_drugs(crawler, company, website_url)
+                    drug_nct_mapping = await self._extract_pipeline_drugs(crawler, company, company_urls)
                     pipeline_drugs = list(drug_nct_mapping.keys())
                     drug_names.update(pipeline_drugs)
                     
@@ -98,13 +362,13 @@ class CompanyWebsiteCollector(BaseCollector):
                     logger.info(f"Collecting pipeline drugs for {company}...")
                     
                     # Get company website
-                    website_url = self._get_company_website(company)
-                    if not website_url:
-                        logger.warning(f"No website found for {company}, skipping...")
+                    company_urls = self._get_company_urls(company)
+                    if not company_urls:
+                        logger.warning(f"No URLs found for {company}, skipping...")
                         continue
                     
                     # Find and scrape pipeline pages
-                    drug_nct_mapping = await self._extract_pipeline_drugs(crawler, company, website_url)
+                    drug_nct_mapping = await self._extract_pipeline_drugs(crawler, company, company_urls)
                     pipeline_drugs = list(drug_nct_mapping.keys())
                     
                     if pipeline_drugs:
@@ -121,37 +385,52 @@ class CompanyWebsiteCollector(BaseCollector):
             logger.info(f"🎉 Total pipeline drugs found: {total_drugs} across {len(company_drug_mapping)} companies")
             return company_drug_mapping
 
-    async def _extract_pipeline_drugs(self, crawler, company: str, base_url: str) -> Dict[str, List[str]]:
-        """Extract drug names and associated NCT codes from company pipeline pages."""
+    async def _extract_pipeline_drugs(self, crawler, company: str, company_urls: Dict[str, str]) -> Dict[str, List[str]]:
+        """Extract drug names and associated NCT codes from company URLs."""
         drug_names = set()
         all_text_content = ""
         
-        # Common pipeline page patterns
-        pipeline_patterns = [
-                f"{base_url.rstrip('/')}/pipeline",
-                f"{base_url.rstrip('/')}/research",
-                f"{base_url.rstrip('/')}/development",
-                f"{base_url.rstrip('/')}/programs",
-                f"{base_url.rstrip('/')}/therapeutics",
-                f"{base_url.rstrip('/')}/medicines",
-                f"{base_url.rstrip('/')}/products",
-                f"{base_url.rstrip('/')}/oncology",
-                f"{base_url.rstrip('/')}/cancer",
-                f"{base_url.rstrip('/')}/immunotherapy",
-                f"{base_url.rstrip('/')}/pipeline/oncology",
-                f"{base_url.rstrip('/')}/pipeline/immuno-oncology",
-                f"{base_url.rstrip('/')}/pipeline/early-stage",
-                f"{base_url.rstrip('/')}/pipeline/late-stage"
-            ]
+        # Use the three specific URLs from CSV
+        urls_to_scrape = [
+            ("official", company_urls["official"]),
+            ("pipeline", company_urls["pipeline"]),
+            ("news", company_urls["news"])
+        ]
         
-        for pattern in pipeline_patterns:
+        for url_type, url in urls_to_scrape:
             try:
-                result = await crawler.arun(
-                    url=pattern,
+                # Try with JavaScript rendering first for better content extraction
+                from crawl4ai.async_configs import CrawlerRunConfig
+                
+                config = CrawlerRunConfig(
                     word_count_threshold=20,
-                    extraction_strategy="NoExtractionStrategy",
-                    bypass_cache=True
+                    extraction_strategy=None,
+                    js_code="""
+                    // Wait for page to load and dynamic content to render
+                    await new Promise(resolve => setTimeout(resolve, 5000));
+                    
+                    // Scroll to load any lazy-loaded content
+                    window.scrollTo(0, document.body.scrollHeight);
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    window.scrollTo(0, 0);
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    """,
+                    wait_until='networkidle',
+                    page_timeout=30000,
+                    delay_before_return_html=2.0
                 )
+                
+                result = await crawler.arun(url=url, config=config)
+                
+                # If JavaScript rendering fails, fall back to basic scraping
+                if not result.success or len(result.cleaned_html) < 100:
+                    logger.info(f"JavaScript rendering failed for {url}, trying basic scraping...")
+                    result = await crawler.arun(
+                        url=url,
+                        word_count_threshold=20,
+                        extraction_strategy="NoExtractionStrategy",
+                        bypass_cache=True
+                    )
                 
                 if result.success and result.cleaned_html:
                     # Extract drug names from this page
@@ -164,10 +443,10 @@ class CompanyWebsiteCollector(BaseCollector):
                     page_text = soup.get_text(separator=' ', strip=True)
                     all_text_content += " " + page_text
                     
-                    logger.info(f"Found {len(page_drugs)} drugs on {pattern}")
+                    logger.info(f"Found {len(page_drugs)} drugs on {url_type} URL: {url}")
                 
             except Exception as e:
-                logger.warning(f"Error scraping {pattern}: {e}")
+                logger.warning(f"Error scraping {url_type} URL {url}: {e}")
                 continue
         
         # Associate NCT codes with drugs
@@ -405,7 +684,7 @@ class CompanyWebsiteCollector(BaseCollector):
         return name
 
     def _validate_drug_name(self, name: str) -> bool:
-        """Validate if a name is likely a drug name using intelligent pattern matching."""
+        """Validate if a name is likely a drug name using strict whitelist approach."""
         if len(name) < 3 or len(name) > 100:
             return False
         
@@ -417,243 +696,151 @@ class CompanyWebsiteCollector(BaseCollector):
         if re.match(r'^NCT\d{8}$', name):
             return False
         
-        # 2. Filter out study codes (pattern: letters followed by numbers) - but allow company codes
-        if re.match(r'^[A-Z]{2,}\d+$', name) and not any(pattern in name.upper() for pattern in ['RG', 'GDC', 'RGT', 'ABBV', 'DS', 'AMG', 'ABP', 'BAY', 'VVD', 'JNJ', 'TAR', 'REGN', 'MK', 'GS', 'AAA', 'NVL']):
-            return False
-        
-        # 3. Filter out generic terms that are not drug names
-        generic_terms = [
-            'study', 'phase', 'trial', 'code', 'compound', 'molecule', 'agent',
-            'treatment', 'therapy', 'drug', 'medication', 'product', 'candidate', 'program',
-            'development', 'research', 'clinical', 'investigational', 'pipeline',
-            'oncology', 'cancer', 'tumor', 'therapeutic', 'biomarker', 'target',
-            'injection', 'tablet', 'capsule', 'solution', 'oral', 'iv', 'im'
-        ]
-        
-        if name.lower() in generic_terms:
-            return False
-        
-        # 4. Filter out very short or very long names that are unlikely to be drugs
-        if len(name) < 4 and not any(suffix in name.lower() for suffix in ['mab', 'nib', 'tinib', 'cept', 'zumab', 'ximab', 'tumab', 'lamab', 'sib', 'lisib', 'ciclib', 'fetinib', 'mig']):
-            return False
-        
-        # 5. Allow company internal codes (RG, GDC, ABBV, etc.)
+        # 2. STRICT WHITELIST APPROACH - Only allow specific patterns
+        # 2a. Company codes (AMG, ABP, RG, etc.)
         company_code_patterns = [
-            r'^RG\d{3,5}$', r'^GDC-\d{3,5}$', r'^RGT-\d{3,5}$', r'^RO[A-Z]*\d*$',
-            r'^ABBV-\d{2,4}$', r'^ABBV-CLS-\d{2,4}$', r'^DS-\d{3,5}$',
-            r'^AMG ?\d{2,4}$', r'^ABP ?\d{2,4}$', r'^XALURITAMIG$',
-            r'^BAY ?\d{3,7}$', r'^VVD-\d{3,6}$', r'^JNJ-\d{3,5}$', r'^TAR-\d{3}$',
-            r'^REGN\d{3,5}$', r'^MK-\d{3,5}[A-Z]?$', r'^GS-\d{3,5}$',
-            r'^AAA\d{3}$', r'^NVL-\d{3}$', r'^S\d{5}$'
+            r'^AMG\s?\d{3,4}$', r'^ABP\s?\d{3,4}$', r'^RG\d{3,5}$', r'^GDC\d{3,5}$',
+            r'^RGT\d{3,5}$', r'^ABBV\d{3,5}$', r'^DS\d{3,5}$', r'^BAY\s?\d{3,7}$',
+            r'^VVD-\d{3,6}$', r'^JNJ-\d{3,5}$', r'^TAR-\d{3}$', r'^REGN\d{3,5}$',
+            r'^MK-\d{3,5}[A-Z]?$', r'^GS-\d{3,5}$', r'^AAA\d{3}$', r'^NVL-\d{3}$',
+            r'^S\d{5}$'
         ]
         
         if any(re.match(pattern, name, re.IGNORECASE) for pattern in company_code_patterns):
             return True
         
-        # 6. Allow drug names with common suffixes
+        # 2b. Drug names with specific suffixes
         drug_suffixes = ['mab', 'nib', 'tinib', 'cept', 'zumab', 'ximab', 'tumab', 'lamab', 'sib', 'lisib', 'ciclib', 'fetinib', 'mig', 'vedotin', 'deruxtecan', 'emtansine', 'autoleucel']
         if any(name.lower().endswith(suffix) for suffix in drug_suffixes):
             return True
         
-        # 6b. Allow brand names with common endings
-        brand_suffixes = ['sa', 'ta', 'na', 'ma', 'ga', 'ka', 'la', 'ra', 'va', 'ya', 'za']
-        if any(name.lower().endswith(suffix) for suffix in brand_suffixes) and len(name) >= 5:
+        # 2c. Known drug names (brand and generic)
+        known_drugs = [
+            'trastuzumab', 'pertuzumab', 'bevacizumab', 'rituximab', 'adalimumab',
+            'infliximab', 'etanercept', 'golimumab', 'certolizumab', 'vedolizumab',
+            'natalizumab', 'ocrelizumab', 'ofatumumab', 'obinutuzumab', 'alemtuzumab',
+            'daratumumab', 'elotuzumab', 'isatuximab', 'belantamab', 'polatuzumab',
+            'brentuximab', 'gemtuzumab', 'inotuzumab', 'moxetumomab', 'sacituzumab',
+            'enfortumab', 'fam-trastuzumab', 'trodelvy', 'kadcyla', 'enhertu',
+            'herceptin', 'perjeta', 'avastin', 'rituxan', 'humira', 'remicade',
+            'enbrel', 'simponi', 'cimzia', 'entyvio', 'tysabri', 'ocrevus',
+            'kesimpta', 'gazyva', 'campath', 'darzalex', 'emplify', 'sarclisa',
+            'blenrep', 'polivy', 'adcetris', 'mylotarg', 'besponsa', 'lumoxiti',
+            'padcev', 'bemarituzumab', 'blinatumomab', 'daxdilimab', 'tarlatamab',
+            'teprotumumab', 'xaluritamig', 'inebilizumab', 'ordesekimab', 'rocatinlimab',
+            'sotorasib', 'tezepelumab', 'romiplostim', 'romosozumab', 'evolocumab',
+            'erenumab', 'nivolumab', 'pembrolizumab', 'ocrelizumab', 'ustekinumab'
+        ]
+        
+        if name.lower() in known_drugs:
             return True
         
-        # 7. Allow multi-word drug names (common in ADCs and complex therapies)
-        if ' ' in name and len(name.split()) <= 4:
-            return True
-        
-        # 8. Allow mRNA patterns
+        # 2d. mRNA patterns
         if re.match(r'^mRNA-\d{3,5}$', name, re.IGNORECASE):
             return True
         
-        # 9. Default to False for anything else
+        # 3. REJECT EVERYTHING ELSE
         return False
-        incomplete_patterns = [
-            r'\bis\b$', r'\bwas\b$', r'\bis\s+a\b', r'\bis\s+an\b', 
-            r'\bwas\s+acquired\b', r'\bis\s+being\b', r'\bexcept\s+as\b',
-            r'\bdecline\s+accept\b', r'\baccept\b$'
-        ]
-        if any(re.search(pattern, name.lower()) for pattern in incomplete_patterns):
-            return False
-        
-        # 5. Filter out descriptive phrases (contains drug class descriptions)
-        descriptive_patterns = [
-            r'\bdrug\s+conjugate\b', r'\bsmall\s+molecule\b', r'\btherapeutic\s+protein\b',
-            r'\bbispecific\s+antibody\b', r'\bpeptide\b', r'\bdose\s+combination\b',
-            r'\bmonoclonal\s+antibody\b', r'\bantibody\s+drug\s+conjugate\b'
-        ]
-        if any(re.search(pattern, name.lower()) for pattern in descriptive_patterns):
-            return False
-        
-        # 6. Filter out common English words and generic terms
-        common_words = {
-            'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
-            'from', 'into', 'during', 'including', 'until', 'against', 'among', 'throughout',
-            'despite', 'towards', 'upon', 'concerning', 'up', 'about', 'through', 'before', 
-            'after', 'above', 'below', 'down', 'out', 'off', 'over', 'under', 'again', 
-            'further', 'then', 'once', 'here', 'there', 'when', 'where', 'why', 'how', 
-            'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such', 
-            'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 
-            'can', 'will', 'just', 'should', 'now', 'accept', 'except', 'igG1', 'igG'
-        }
-        
-        if name.lower() in common_words:
-            return False
-        
-        # 7. Positive indicators for drug names (more permissive)
-        drug_indicators = [
-            # Drug suffixes (monoclonal antibodies, kinase inhibitors, etc.)
-            name.lower().endswith(('mab', 'nib', 'tinib', 'cept', 'zumab', 'ximab', 'mab')),
-            
-            # RG codes (Roche/Genentech internal codes)
-            re.match(r'^rg\d+', name.lower()),
-            
-            # MK codes (Merck internal codes)
-            re.match(r'^mk-\d+', name.lower()),
-            
-            # Complex multi-word names with drug suffixes
-            len(name.split()) > 1 and any(word.endswith(('mab', 'nib', 'tinib', 'cept')) for word in name.split()),
-            
-            # Names with common drug prefixes/suffixes
-            re.search(r'(pembrolizumab|nivolumab|sotatercept|patritumab|sacituzumab|zilovertamab|nemtabrutinib|quavonlimab|clesrovimab|ifinatamab|bezlotoxumab)', name.lower()),
-            
-            # Allow names that look like drug names (capitalized, reasonable length)
-            len(name) >= 4 and name[0].isupper() and not re.match(r'^[A-Z]{2,4}\d*$', name) and not re.match(r'^NCT\d+', name)
-        ]
-        
-        return any(drug_indicators)
     
-    async def _collect_company_comprehensive_data(self, crawler, company: str, base_url: str) -> List[CollectedData]:
-        """Collect comprehensive data from multiple company website sections."""
+    async def _collect_company_comprehensive_data(self, crawler, company: str, company_urls: Dict[str, str]) -> List[CollectedData]:
+        """Collect comprehensive data from company URLs: OfficialWebsite, PipelineURL, NewsURL."""
         collected_data = []
         
-        # Define page types to collect
-        page_types = [
-            ("pipeline", ["pipeline", "development", "research", "programs"]),
-            ("clinical_trials", ["clinical", "trials", "studies", "research"]),
-            ("products", ["products", "therapeutics", "medicines", "drugs"]),
-            ("oncology", ["oncology", "cancer", "tumor", "immunotherapy"]),
-            ("about", ["about", "company", "overview", "mission"])
+        # Define URL types and their purposes
+        url_types = [
+            ("official", company_urls["official"], ["company", "overview", "mission", "about"]),
+            ("pipeline", company_urls["pipeline"], ["pipeline", "development", "research", "programs", "drugs"]),
+            ("news", company_urls["news"], ["news", "press", "releases", "announcements"])
         ]
         
-        for page_type, keywords in page_types:
+        for url_type, url, keywords in url_types:
             try:
-                # Find relevant pages
-                pages = await self._find_company_pages(crawler, base_url, keywords)
+                # Try with JavaScript rendering first for better content extraction
+                from crawl4ai.async_configs import CrawlerRunConfig
                 
-                for page_url in pages[:2]:  # Limit to 2 pages per type
-                    try:
-                        result = await crawler.arun(
-                            url=page_url,
-                            word_count_threshold=20,
-                            extraction_strategy="NoExtractionStrategy",
-                            bypass_cache=True
-                        )
-                        
-                        if result.success and result.cleaned_html:
-                            content = self._extract_specialized_content(
-                                result.cleaned_html, company, page_type, keywords
-                            )
-                            
-                            if content:
-                                data = CollectedData(
-                                    title=f"{company} - {page_type.title()} Information",
-                                    content=content,
-                                    source_url=page_url,
-                                    source_type=f"company_{page_type}",
-                                    metadata={
-                                        "company": company,
-                                        "page_type": page_type,
-                                        "keywords": keywords,
-                                        "content_length": len(content)
-                                    }
-                                )
-                                collected_data.append(data)
-                                logger.info(f"✅ Collected {page_type} data for {company}")
+                config = CrawlerRunConfig(
+                    word_count_threshold=20,
+                    extraction_strategy=None,
+                    js_code="""
+                    // Wait for page to load and dynamic content to render
+                    await new Promise(resolve => setTimeout(resolve, 5000));
                     
-                    except Exception as e:
-                        logger.warning(f"Error collecting {page_type} data for {company}: {e}")
-                        continue
+                    // Scroll to load any lazy-loaded content
+                    window.scrollTo(0, document.body.scrollHeight);
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    window.scrollTo(0, 0);
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    """,
+                    wait_until='networkidle',
+                    page_timeout=30000,
+                    delay_before_return_html=2.0
+                )
+                
+                result = await crawler.arun(url=url, config=config)
+                
+                # If JavaScript rendering fails, fall back to basic scraping
+                if not result.success or len(result.cleaned_html) < 100:
+                    logger.info(f"JavaScript rendering failed for {url}, trying basic scraping...")
+                    result = await crawler.arun(
+                        url=url,
+                        word_count_threshold=20,
+                        extraction_strategy="NoExtractionStrategy",
+                        bypass_cache=True
+                    )
+                
+                if result.success and result.cleaned_html:
+                    content = self._extract_specialized_content(
+                        result.cleaned_html, company, url_type, keywords
+                    )
+                    
+                    if content:
+                        collected_data.append(CollectedData(
+                            source=f"{company}_{url_type}_website",
+                            content=content,
+                            metadata={
+                                "company": company,
+                                "url": url,
+                                "url_type": url_type,
+                                "keywords": keywords,
+                                "content_length": len(content)
+                            }
+                        ))
                         
+                        logger.info(f"Collected {len(content)} characters from {company} {url_type} website")
+                    else:
+                        logger.warning(f"No content extracted from {company} {url_type} website")
+                else:
+                    logger.warning(f"Failed to scrape {company} {url_type} website: {url}")
+                    
             except Exception as e:
-                logger.warning(f"Error finding {page_type} pages for {company}: {e}")
+                logger.error(f"Error collecting data from {company} {url_type} website: {e}")
                 continue
         
         return collected_data
     
-    async def _find_company_pages(self, crawler, base_url: str, keywords: List[str]) -> List[str]:
-        """Find relevant pages on company website based on keywords."""
-        found_pages = []
-        
-        try:
-            # First, try to find sitemap or navigation
-            sitemap_urls = [
-                f"{base_url}/sitemap.xml",
-                f"{base_url}/sitemap_index.xml",
-                f"{base_url}/robots.txt"
-            ]
-            
-            for sitemap_url in sitemap_urls:
-                try:
-                    result = await crawler.arun(url=sitemap_url, bypass_cache=True)
-                    if result.success:
-                        # Extract URLs from sitemap
-                        urls = self._extract_urls_from_sitemap(result.cleaned_html, keywords)
-                        found_pages.extend(urls)
-                except:
-                    continue
-            
-            # If no sitemap found, try common page patterns
-            if not found_pages:
-                common_patterns = [
-                    f"{base_url}/pipeline",
-                    f"{base_url}/research",
-                    f"{base_url}/development",
-                    f"{base_url}/clinical-trials",
-                    f"{base_url}/products",
-                    f"{base_url}/oncology",
-                    f"{base_url}/about",
-                    f"{base_url}/company"
-                ]
-                found_pages.extend(common_patterns)
-            
-        except Exception as e:
-            logger.warning(f"Error finding pages: {e}")
-        
-        return found_pages[:5]  # Limit to 5 pages per company
-    
-    def _extract_urls_from_sitemap(self, sitemap_content: str, keywords: List[str]) -> List[str]:
-        """Extract relevant URLs from sitemap content."""
-        urls = []
-        
-        # Simple URL extraction from sitemap XML
-        url_pattern = r'<loc>(.*?)</loc>'
-        matches = re.findall(url_pattern, sitemap_content)
-        
-        for url in matches:
-            url_lower = url.lower()
-            if any(keyword in url_lower for keyword in keywords):
-                urls.append(url)
-        
-        return urls
-    
-    def _get_company_website(self, company: str) -> Optional[str]:
-        """Get company pipeline URL from CSV."""
-        # Read from CSV if available
+    def _get_company_urls(self, company: str) -> Dict[str, str]:
+        """Get all company URLs from CSV: OfficialWebsite, PipelineURL, NewsURL."""
         try:
             import pandas as pd
             df = pd.read_csv("data/companies.csv")
             company_row = df[df["Company"] == company]
             if not company_row.empty:
-                return company_row.iloc[0]["PipelineURL"]
+                return {
+                    "official": company_row.iloc[0]["OfficialWebsite"],
+                    "pipeline": company_row.iloc[0]["PipelineURL"],
+                    "news": company_row.iloc[0]["NewsURL"]
+                }
         except Exception as e:
-            logger.warning(f"Could not read company CSV: {e}")
+            logger.warning(f"Could not read company URLs from CSV: {e}")
         
-        # Fallback: construct URL based on company name
+        # Fallback: construct URLs based on company name
         company_lower = company.lower().replace(" ", "").replace("&", "").replace("(", "").replace(")", "")
-        return f"https://www.{company_lower}.com"
+        base_url = f"https://www.{company_lower}.com"
+        return {
+            "official": base_url,
+            "pipeline": f"{base_url}/pipeline",
+            "news": f"{base_url}/news"
+        }
     
     def _extract_specialized_content(self, html_content: str, company: str, page_type: str, keywords: List[str]) -> str:
         """Extract specialized content based on page type and keywords."""
@@ -679,390 +866,187 @@ class CompanyWebsiteCollector(BaseCollector):
         
         return "\n".join(content_parts)
     
+    async def _collect_company_comprehensive_data(self, crawler, company: str, company_urls: Dict[str, str]) -> List[CollectedData]:
+        """Collect comprehensive data from company URLs: OfficialWebsite, PipelineURL, NewsURL."""
+        collected_data = []
+        
+        # Define URL types and their purposes
+        url_types = [
+            ("official", company_urls["official"], ["company", "overview", "mission", "about"]),
+            ("pipeline", company_urls["pipeline"], ["pipeline", "development", "research", "programs", "drugs"]),
+            ("news", company_urls["news"], ["news", "press", "releases", "announcements"])
+        ]
+        
+        for url_type, url, keywords in url_types:
+            try:
+                # Try with JavaScript rendering first for better content extraction
+                from crawl4ai.async_configs import CrawlerRunConfig
+                
+                config = CrawlerRunConfig(
+                    word_count_threshold=20,
+                    extraction_strategy=None,
+                    js_code="""
+                    // Wait for page to load and dynamic content to render
+                    await new Promise(resolve => setTimeout(resolve, 5000));
+                    
+                    // Scroll to load any lazy-loaded content
+                    window.scrollTo(0, document.body.scrollHeight);
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    window.scrollTo(0, 0);
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    """,
+                    wait_until='networkidle',
+                    page_timeout=30000,
+                    delay_before_return_html=2.0
+                )
+                
+                result = await crawler.arun(url=url, config=config)
+                
+                # If JavaScript rendering fails, fall back to basic scraping
+                if not result.success or len(result.cleaned_html) < 100:
+                    logger.info(f"JavaScript rendering failed for {url}, trying basic scraping...")
+                    result = await crawler.arun(
+                        url=url,
+                        word_count_threshold=20,
+                        extraction_strategy="NoExtractionStrategy",
+                        bypass_cache=True
+                    )
+                
+                if result.success and result.cleaned_html:
+                    content = self._extract_specialized_content(
+                        result.cleaned_html, company, url_type, keywords
+                    )
+                    
+                    if content:
+                        data = CollectedData(
+                            title=f"{company} - {url_type.title()} Information",
+                            content=content,
+                            source_url=url,
+                            source_type=f"company_{url_type}",
+                            metadata={
+                                "company": company,
+                                "url_type": url_type,
+                                "keywords": keywords,
+                                "content_length": len(content)
+                            }
+                        )
+                        collected_data.append(data)
+                        logger.info(f"✅ Collected {url_type} data for {company} from {url}")
+                
+            except Exception as e:
+                logger.warning(f"Error collecting {url_type} data for {company} from {url}: {e}")
+                continue
+        
+        return collected_data
+    
     def _extract_pipeline_content(self, html_content: str, keywords: List[str]) -> List[str]:
         """Extract pipeline-specific content."""
-        content = [
-            "Pipeline Information:",
-            "This section contains information about the company's drug development pipeline,",
-            "including investigational drugs, development stages, and therapeutic areas.",
-            ""
+        content = ["Pipeline Information:", ""]
+        
+        # Simple extraction - just get text content
+        soup = BeautifulSoup(html_content, 'html.parser')
+        text_content = soup.get_text(separator=' ', strip=True)
+        
+        # Extract drug names
+        drug_patterns = [
+            r'\b[A-Z][a-z]+mab\b',  # Monoclonal antibodies
+            r'\b[A-Z][a-z]+nib\b',  # Kinase inhibitors
+            r'\b[A-Z][a-z]+tinib\b',  # Tyrosine kinase inhibitors
         ]
         
-        # Look for pipeline-specific patterns
-        pipeline_patterns = [
-            r"phase\s+[i1-3]", r"preclinical", r"clinical\s+trial", r"fda\s+approval",
-            r"ind\s+\(investigational\s+new\s+drug\)", r"nda\s+\(new\s+drug\s+application\)",
-            r"bla\s+\(biologics\s+license\s+application\)", r"orphan\s+drug",
-            r"breakthrough\s+therapy", r"fast\s+track", r"priority\s+review"
-        ]
+        for pattern in drug_patterns:
+            matches = re.findall(pattern, text_content)
+            if matches:
+                unique_drugs = list(set(matches))
+                content.append(f"Drugs found: {', '.join(unique_drugs[:5])}")
+                break
         
-        paragraphs = html_content.split('\n')
-        relevant_paragraphs = []
-        
-        for para in paragraphs:
-            para_lower = para.lower()
-            if (any(keyword in para_lower for keyword in keywords) or 
-                any(re.search(pattern, para_lower) for pattern in pipeline_patterns)):
-                if len(para.strip()) > 30:
-                    relevant_paragraphs.append(para.strip())
-        
-        if relevant_paragraphs:
-            content.extend(relevant_paragraphs[:8])
-        else:
-            # Enhanced extraction with more specific patterns
-            soup = BeautifulSoup(html_content, 'html.parser')
-            
-            # Look for specific pipeline-related content
-            pipeline_sections = soup.find_all(['div', 'section', 'article'], 
-                string=re.compile(r'pipeline|development|program|portfolio|therapeutic', re.I))
-            
-            for section in pipeline_sections:
-                if section.get_text().strip():
-                    text = section.get_text().strip()
-                    if len(text) > 50 and any(keyword in text.lower() for keyword in keywords):
-                        content.append(f"Pipeline Section: {text[:500]}...")
-            
-            # Look for drug names in various formats
-            drug_patterns = [
-                r'\b[A-Z][a-z]+mab\b',  # Monoclonal antibodies
-                r'\b[A-Z][a-z]+nib\b',  # Kinase inhibitors
-                r'\b[A-Z][a-z]+zumab\b',  # Humanized antibodies
-                r'\b[A-Z][a-z]+tinib\b',  # Tyrosine kinase inhibitors
-                r'\b[A-Z][a-z]+ciclib\b',  # CDK inhibitors
-            ]
-            
-            for pattern in drug_patterns:
-                matches = re.findall(pattern, html_content)
-                if matches:
-                    unique_drugs = list(set(matches))
-                    content.append(f"Identified drug candidates: {', '.join(unique_drugs[:5])}")
-            
-            if len(content) <= 3:  # Still no meaningful content
-                content.extend([
-                    "Pipeline information not found in accessible content.",
-                    "This may indicate:",
-                    "- Pipeline data is behind authentication",
-                    "- Content is loaded dynamically via JavaScript",
-                    "- Information is in PDF documents or other formats"
-                ])
+        if len(content) <= 2:
+            content.append("No pipeline information found in accessible content.")
         
         return content
     
     def _extract_clinical_trials_content(self, html_content: str, keywords: List[str]) -> List[str]:
         """Extract clinical trials-specific content."""
-        content = [
-            "Clinical Trials Information:",
-            "This section contains information about ongoing and completed clinical trials,",
-            "including study designs, patient populations, and outcomes.",
-            ""
-        ]
+        content = ["Clinical Trials Information:", ""]
         
-        # Look for clinical trial patterns
-        trial_patterns = [
-            r"nct\d+", r"clinical\s+trial", r"study\s+design", r"primary\s+endpoint",
-            r"secondary\s+endpoint", r"inclusion\s+criteria", r"exclusion\s+criteria",
-            r"patient\s+population", r"dose\s+escalation", r"safety\s+profile",
-            r"efficacy\s+data", r"overall\s+survival", r"progression\s+free\s+survival"
-        ]
+        # Look for NCT numbers
+        nct_pattern = r'NCT\d{8}'
+        nct_matches = re.findall(nct_pattern, html_content)
+        if nct_matches:
+            unique_ncts = list(set(nct_matches))
+            content.append(f"Clinical Trial IDs: {', '.join(unique_ncts[:5])}")
         
-        paragraphs = html_content.split('\n')
-        relevant_paragraphs = []
-        
-        for para in paragraphs:
-            para_lower = para.lower()
-            if (any(keyword in para_lower for keyword in keywords) or 
-                any(re.search(pattern, para_lower) for pattern in trial_patterns)):
-                if len(para.strip()) > 30:
-                    relevant_paragraphs.append(para.strip())
-        
-        if relevant_paragraphs:
-            content.extend(relevant_paragraphs[:8])
-        else:
-            # Enhanced clinical trials extraction
-            soup = BeautifulSoup(html_content, 'html.parser')
-            
-            # Look for NCT numbers
-            nct_pattern = r'NCT\d{8}'
-            nct_matches = re.findall(nct_pattern, html_content)
-            if nct_matches:
-                unique_ncts = list(set(nct_matches))
-                content.append(f"Clinical Trial Identifiers: {', '.join(unique_ncts[:5])}")
-            
-            # Look for phase information
-            phase_patterns = [
-                r'phase\s+[I1-3]', r'phase\s+II', r'phase\s+III', r'phase\s+IV',
-                r'pivotal\s+study', r'registration\s+trial', r'confirmatory\s+trial'
-            ]
-            
-            for pattern in phase_patterns:
-                matches = re.findall(pattern, html_content, re.I)
-                if matches:
-                    content.append(f"Study Phases Found: {', '.join(set(matches))}")
-            
-            # Look for trial-related sections
-            trial_sections = soup.find_all(['div', 'section'], 
-                string=re.compile(r'clinical\s+trial|study|enrollment|endpoint', re.I))
-            
-            for section in trial_sections:
-                if section.get_text().strip():
-                    text = section.get_text().strip()
-                    if len(text) > 100:
-                        content.append(f"Trial Information: {text[:400]}...")
-            
-            if len(content) <= 3:  # Still no meaningful content
-                content.extend([
-                    "Clinical trial information not found in accessible content.",
-                    "This may indicate:",
-                    "- Trial data is in separate databases",
-                    "- Information requires registration/login",
-                    "- Data is presented in interactive formats"
-                ])
+        if len(content) <= 2:
+            content.append("No clinical trial information found.")
         
         return content
     
     def _extract_products_content(self, html_content: str, keywords: List[str]) -> List[str]:
         """Extract products-specific content."""
-        content = [
-            "Products Information:",
-            "This section contains information about approved and marketed products,",
-            "including indications, mechanisms of action, and commercial information.",
-            ""
-        ]
+        content = ["Products Information:", ""]
         
-        # Look for product patterns
+        # Simple extraction
+        soup = BeautifulSoup(html_content, 'html.parser')
+        text_content = soup.get_text(separator=' ', strip=True)
+        
+        # Extract product names
         product_patterns = [
-            r"indication", r"mechanism\s+of\s+action", r"dosing", r"administration",
-            r"contraindication", r"adverse\s+event", r"side\s+effect", r"warning",
-            r"precaution", r"drug\s+interaction", r"pharmacokinetic", r"pharmacodynamic"
+            r'\b[A-Z][a-z]+mab\b',  # Monoclonal antibodies
+            r'\b[A-Z][a-z]+nib\b',  # Kinase inhibitors
         ]
         
-        paragraphs = html_content.split('\n')
-        relevant_paragraphs = []
+        for pattern in product_patterns:
+            matches = re.findall(pattern, text_content)
+            if matches:
+                unique_products = list(set(matches))
+                content.append(f"Products found: {', '.join(unique_products[:5])}")
+                break
         
-        for para in paragraphs:
-            para_lower = para.lower()
-            if (any(keyword in para_lower for keyword in keywords) or 
-                any(re.search(pattern, para_lower) for pattern in product_patterns)):
-                if len(para.strip()) > 30:
-                    relevant_paragraphs.append(para.strip())
-        
-        if relevant_paragraphs:
-            content.extend(relevant_paragraphs[:8])
-        else:
-            # Enhanced products extraction
-            soup = BeautifulSoup(html_content, 'html.parser')
-            
-            # Look for product names and brand names
-            product_patterns = [
-                r'\b[A-Z][a-z]+mab\b',  # Monoclonal antibodies
-                r'\b[A-Z][a-z]+nib\b',  # Kinase inhibitors
-                r'\b[A-Z][a-z]+zumab\b',  # Humanized antibodies
-                r'\b[A-Z][a-z]+tinib\b',  # Tyrosine kinase inhibitors
-                r'\b[A-Z][a-z]+ciclib\b',  # CDK inhibitors
-                r'\b[A-Z][a-z]+parib\b',  # PARP inhibitors
-            ]
-            
-            found_products = []
-            for pattern in product_patterns:
-                matches = re.findall(pattern, html_content)
-                found_products.extend(matches)
-            
-            if found_products:
-                unique_products = list(set(found_products))
-                content.append(f"Product Names Found: {', '.join(unique_products[:8])}")
-            
-            # Look for indication information
-            indication_patterns = [
-                r'indication[s]?\s*:?\s*([^.]+)',
-                r'treat[s]?\s+([^.]+)',
-                r'indicated\s+for\s+([^.]+)',
-                r'approved\s+for\s+([^.]+)'
-            ]
-            
-            for pattern in indication_patterns:
-                matches = re.findall(pattern, html_content, re.I)
-                if matches:
-                    content.append(f"Indications: {', '.join(matches[:3])}")
-            
-            # Look for mechanism of action
-            moa_patterns = [
-                r'mechanism\s+of\s+action[s]?\s*:?\s*([^.]+)',
-                r'works\s+by\s+([^.]+)',
-                r'targets?\s+([^.]+)',
-                r'inhibits?\s+([^.]+)'
-            ]
-            
-            for pattern in moa_patterns:
-                matches = re.findall(pattern, html_content, re.I)
-                if matches:
-                    content.append(f"Mechanism of Action: {matches[0][:200]}...")
-                    break
-            
-            if len(content) <= 3:  # Still no meaningful content
-                content.extend([
-                    "Product information not found in accessible content.",
-                    "This may indicate:",
-                    "- Product data is in separate sections",
-                    "- Information requires specific navigation",
-                    "- Data is presented in structured formats"
-                ])
+        if len(content) <= 2:
+            content.append("No product information found.")
         
         return content
     
     def _extract_oncology_content(self, html_content: str, keywords: List[str]) -> List[str]:
         """Extract oncology-specific content."""
-        content = [
-            "Oncology Information:",
-            "This section contains information about cancer-related products and research,",
-            "including tumor types, biomarkers, and therapeutic approaches.",
-            ""
+        content = ["Oncology Information:", ""]
+        
+        # Look for cancer types
+        cancer_types = [
+            'breast cancer', 'lung cancer', 'prostate cancer', 'colorectal cancer',
+            'melanoma', 'lymphoma', 'leukemia', 'ovarian cancer'
         ]
         
-        # Look for oncology patterns
-        oncology_patterns = [
-            r"cancer", r"tumor", r"neoplasm", r"carcinoma", r"sarcoma", r"lymphoma",
-            r"leukemia", r"metastasis", r"biomarker", r"immunotherapy", r"targeted\s+therapy",
-            r"chemotherapy", r"radiation", r"precision\s+medicine", r"companion\s+diagnostic",
-            r"pd\s*-\s*1", r"pd\s*-\s*l1", r"ctla\s*-\s*4", r"her2", r"egfr", r"alk"
-        ]
+        found_cancers = []
+        for cancer in cancer_types:
+            if cancer in html_content.lower():
+                found_cancers.append(cancer)
         
-        paragraphs = html_content.split('\n')
-        relevant_paragraphs = []
+        if found_cancers:
+            content.append(f"Cancer types mentioned: {', '.join(found_cancers[:3])}")
         
-        for para in paragraphs:
-            para_lower = para.lower()
-            if (any(keyword in para_lower for keyword in keywords) or 
-                any(re.search(pattern, para_lower) for pattern in oncology_patterns)):
-                if len(para.strip()) > 30:
-                    relevant_paragraphs.append(para.strip())
-        
-        if relevant_paragraphs:
-            content.extend(relevant_paragraphs[:8])
-        else:
-            # Enhanced oncology extraction
-            soup = BeautifulSoup(html_content, 'html.parser')
-            
-            # Look for cancer types and tumor indications
-            cancer_types = [
-                'breast cancer', 'lung cancer', 'prostate cancer', 'colorectal cancer',
-                'melanoma', 'lymphoma', 'leukemia', 'ovarian cancer', 'pancreatic cancer',
-                'hepatocellular carcinoma', 'renal cell carcinoma', 'bladder cancer'
-            ]
-            
-            found_cancers = []
-            for cancer in cancer_types:
-                if cancer in html_content.lower():
-                    found_cancers.append(cancer)
-            
-            if found_cancers:
-                content.append(f"Cancer Types Mentioned: {', '.join(found_cancers[:5])}")
-            
-            # Look for biomarker information
-            biomarker_patterns = [
-                r'biomarker[s]?\s*:?\s*([^.]+)',
-                r'expression\s+of\s+([^.]+)',
-                r'mutation[s]?\s+in\s+([^.]+)',
-                r'overexpression\s+of\s+([^.]+)'
-            ]
-            
-            for pattern in biomarker_patterns:
-                matches = re.findall(pattern, html_content, re.I)
-                if matches:
-                    content.append(f"Biomarkers: {', '.join(matches[:3])}")
-            
-            # Look for immunotherapy and targeted therapy mentions
-            therapy_types = [
-                'immunotherapy', 'targeted therapy', 'CAR-T', 'checkpoint inhibitor',
-                'monoclonal antibody', 'kinase inhibitor', 'PARP inhibitor'
-            ]
-            
-            found_therapies = []
-            for therapy in therapy_types:
-                if therapy in html_content.lower():
-                    found_therapies.append(therapy)
-            
-            if found_therapies:
-                content.append(f"Therapy Approaches: {', '.join(found_therapies[:4])}")
-            
-            if len(content) <= 3:  # Still no meaningful content
-                content.extend([
-                    "Oncology information not found in accessible content.",
-                    "This may indicate:",
-                    "- Oncology data is in specialized sections",
-                    "- Information requires medical expertise to interpret",
-                    "- Data is presented in clinical formats"
-                ])
+        if len(content) <= 2:
+            content.append("No oncology information found.")
         
         return content
     
     def _extract_general_content(self, html_content: str, keywords: List[str]) -> List[str]:
         """Extract general company content."""
-        content = [
-            "General Company Information:",
-            "This section contains general information about the company,",
-            "including corporate overview, mission, and strategic focus areas.",
-            ""
-        ]
+        content = ["General Company Information:", ""]
         
-        paragraphs = html_content.split('\n')
-        relevant_paragraphs = []
+        # Simple extraction
+        soup = BeautifulSoup(html_content, 'html.parser')
+        text_content = soup.get_text(separator=' ', strip=True)
         
-        for para in paragraphs:
-            para_lower = para.lower()
-            if any(keyword in para_lower for keyword in keywords):
-                if len(para.strip()) > 50:
-                    relevant_paragraphs.append(para.strip())
+        # Get first few paragraphs
+        paragraphs = text_content.split('\n\n')
+        for para in paragraphs[:3]:
+            if len(para.strip()) > 50:
+                content.append(para.strip()[:200] + "...")
         
-        if relevant_paragraphs:
-            content.extend(relevant_paragraphs[:6])
-        else:
-            # Enhanced general content extraction
-            soup = BeautifulSoup(html_content, 'html.parser')
-            
-            # Look for company overview sections
-            overview_sections = soup.find_all(['div', 'section'], 
-                string=re.compile(r'about\s+us|company\s+overview|mission|vision', re.I))
-            
-            for section in overview_sections:
-                if section.get_text().strip():
-                    text = section.get_text().strip()
-                    if len(text) > 100:
-                        content.append(f"Company Overview: {text[:300]}...")
-            
-            # Look for strategic focus areas
-            focus_patterns = [
-                r'focus\s+areas?\s*:?\s*([^.]+)',
-                r'strategic\s+priorities?\s*:?\s*([^.]+)',
-                r'therapeutic\s+areas?\s*:?\s*([^.]+)'
-            ]
-            
-            for pattern in focus_patterns:
-                matches = re.findall(pattern, html_content, re.I)
-                if matches:
-                    content.append(f"Strategic Focus: {matches[0][:200]}...")
-                    break
-            
-            # Look for partnership information
-            partnership_patterns = [
-                r'partnership[s]?\s+with\s+([^.]+)',
-                r'collaboration[s]?\s+with\s+([^.]+)',
-                r'alliance[s]?\s+with\s+([^.]+)'
-            ]
-            
-            for pattern in partnership_patterns:
-                matches = re.findall(pattern, html_content, re.I)
-                if matches:
-                    content.append(f"Partnerships: {', '.join(matches[:3])}")
-                    break
-            
-            if len(content) <= 3:  # Still no meaningful content
-                content.extend([
-                    "General company information not found in accessible content.",
-                    "This may indicate:",
-                    "- Company data is in separate sections",
-                    "- Information requires specific navigation",
-                    "- Data is presented in structured formats"
-                ])
+        if len(content) <= 2:
+            content.append("No general company information found.")
         
         return content
     

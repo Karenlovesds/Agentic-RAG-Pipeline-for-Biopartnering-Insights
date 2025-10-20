@@ -5,15 +5,11 @@ Script to regenerate the drug collection summary with improved drug validation.
 
 import sys
 import os
-from pathlib import Path
-
-# Add project root to path
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.models.database import get_db
 from src.models.entities import Drug, Company, ClinicalTrial, Document
-from src.processing.entity_extractor import EntityExtractor
+from src.processing.comprehensive_entity_extractor import ComprehensiveEntityExtractor
 from datetime import datetime
 
 def regenerate_drug_summary():
@@ -119,75 +115,63 @@ def _is_valid_drug_name(name: str) -> bool:
     """Improved drug name validation (same logic as in the extractors)."""
     import re
     
+    # Basic length check
     if len(name) < 3 or len(name) > 100:
         return False
     
-    # Filter out clinical trial IDs
-    if re.match(r'^NCT\d+', name.upper()):
-        return False
+    name_lower = name.lower()
     
-    # Filter out study names and codes
-    if re.match(r'^(Lung|Breast|PanTumor|Prostate|GI|Ovarian|Esophageal)\d+$', name):
-        return False
+    # Define all exclusion patterns
+    exclusion_patterns = [
+        # Clinical trial IDs
+        lambda n: re.match(r'^nct\d+', n.upper()),
+        # Study names and codes
+        lambda n: re.match(r'^(Lung|Breast|PanTumor|Prostate|GI|Ovarian|Esophageal)\d+$', n),
+        # Generic protein/antibody terms
+        lambda n: n in {'ig', 'igg1', 'igg2', 'igg3', 'igg4', 'igm', 'iga', 'parp1', 'parp2', 'parp3',
+                       'tyk2', 'cdh6', 'ror1', 'her3', 'trop2', 'pcsk9', 'ov65'},
+        # Common false positives
+        lambda n: n in {'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
+                       'is', 'was', 'are', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
+                       'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might',
+                       'can', 'must', 'shall', 'accept', 'except', 'decline', 'drug', 'conjugate',
+                       'small', 'molecule', 'therapeutic', 'protein', 'bispecific', 'antibody',
+                       'dose', 'combination', 'acquired', 'noted', 'except', 'as', 'was', 'is',
+                       'being', 'an', 'a', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for'},
+        # Incomplete endings
+        lambda n: any(n.endswith(ending) for ending in [' is', ' was', ' being', ' an', ' a', ' the', ' and', ' or']),
+        # Descriptive phrases
+        lambda n: any(phrase in n for phrase in ['drug conjugate', 'small molecule', 'therapeutic protein', 'bispecific antibody', 'peptide'])
+    ]
     
-    # Filter out generic protein/antibody terms
-    generic_terms = {
-        'ig', 'igg1', 'igg2', 'igg3', 'igg4', 'igm', 'iga', 'parp1', 'parp2', 'parp3',
-        'tyk2', 'cdh6', 'ror1', 'her3', 'trop2', 'pcsk9', 'ov65'
-    }
-    
-    if name.lower() in generic_terms:
-        return False
-    
-    # Filter out common false positives
-    false_positives = {
-        'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
-        'is', 'was', 'are', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
-        'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might',
-        'can', 'must', 'shall', 'accept', 'except', 'decline', 'drug', 'conjugate',
-        'small', 'molecule', 'therapeutic', 'protein', 'bispecific', 'antibody',
-        'dose', 'combination', 'acquired', 'noted', 'except', 'as', 'was', 'is',
-        'being', 'an', 'a', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for'
-    }
-    
-    if name.lower() in false_positives:
-        return False
-    
-    # Filter out incomplete drug names (ending with common words)
-    incomplete_endings = [' is', ' was', ' being', ' an', ' a', ' the', ' and', ' or']
-    if any(name.endswith(ending) for ending in incomplete_endings):
-        return False
-    
-    # Filter out descriptive phrases
-    descriptive_phrases = ['drug conjugate', 'small molecule', 'therapeutic protein', 'bispecific antibody', 'peptide']
-    if any(phrase in name.lower() for phrase in descriptive_phrases):
-        return False
+    # Check all exclusion patterns
+    for pattern in exclusion_patterns:
+        if pattern(name_lower):
+            return False
     
     # Positive indicators for actual drug names
     drug_indicators = [
         # Monoclonal antibodies
-        name.lower().endswith(('mab', 'zumab', 'ximab')),
+        name_lower.endswith(('mab', 'zumab', 'ximab')),
         # Kinase inhibitors
-        name.lower().endswith(('nib', 'tinib')),
+        name_lower.endswith(('nib', 'tinib')),
         # Fusion proteins
-        name.lower().endswith('cept'),
+        name_lower.endswith('cept'),
         # PARP inhibitors
-        name.lower().endswith('parib'),
+        name_lower.endswith('parib'),
         # CDK inhibitors
-        name.lower().endswith('ciclib'),
+        name_lower.endswith('ciclib'),
         # Specific known drugs
-        name.lower() in {
-            'pembrolizumab', 'nivolumab', 'sotatercept', 'patritumab', 'sacituzumab',
-            'zilovertamab', 'nemtabrutinib', 'quavonlimab', 'clesrovimab', 'ifinatamab',
-            'bezlotoxumab', 'ipilimumab', 'relatlimab', 'enasicon', 'dasatinib',
-            'repotrectinib', 'elotuzumab', 'belatacept', 'fedratinib', 'luspatercept',
-            'abatacept', 'deucravacitinib', 'olaparib', 'palbociclib', 'rucaparib',
-            'niraparib', 'talazoparib', 'ribociclib', 'abemaciclib'
-        },
+        name_lower in {'pembrolizumab', 'nivolumab', 'sotatercept', 'patritumab', 'sacituzumab',
+                      'zilovertamab', 'nemtabrutinib', 'quavonlimab', 'clesrovimab', 'ifinatamab',
+                      'bezlotoxumab', 'ipilimumab', 'relatlimab', 'enasicon', 'dasatinib',
+                      'repotrectinib', 'elotuzumab', 'belatacept', 'fedratinib', 'luspatercept',
+                      'abatacept', 'deucravacitinib', 'olaparib', 'palbociclib', 'rucaparib',
+                      'niraparib', 'talazoparib', 'ribociclib', 'abemaciclib'},
         # Merck drug codes
-        re.match(r'^mk-\d+', name.lower()),
+        re.match(r'^mk-\d+', name_lower),
         # Roche drug codes
-        re.match(r'^rg\d+', name.lower()),
+        re.match(r'^rg\d+', name_lower),
     ]
     
     return any(drug_indicators)

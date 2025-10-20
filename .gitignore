@@ -78,3 +78,7 @@ outputs/validation_results.json
 *.temp
 temp/
 tmp/
+
+# Code review reports
+code_review_report_*.json
+COMPREHENSIVE_CODE_REVIEW_REPORT.md

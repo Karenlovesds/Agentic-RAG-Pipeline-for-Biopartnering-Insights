@@ -27,44 +27,58 @@ class EntityExtractor:
         """Extract all entities from documents and return counts."""
         logger.info("Starting entity extraction from all documents...")
         
-        # Get all documents
+        # Get all documents and initialize stats
         documents = self.db.query(Document).all()
         logger.info(f"Processing {len(documents)} documents...")
         
-        stats = {
+        stats = self._initialize_extraction_stats()
+        
+        # Process each document
+        for doc in documents:
+            try:
+                self._process_single_document(doc, stats)
+            except Exception as e:
+                logger.error(f"Error processing document {doc.id}: {e}")
+                continue
+        
+        # Create relationships and finalize
+        self._finalize_extraction(stats)
+        
+        return stats
+    
+    def _initialize_extraction_stats(self) -> Dict[str, int]:
+        """Initialize extraction statistics."""
+        return {
             "companies_created": 0,
             "drugs_created": 0,
             "clinical_trials_created": 0,
             "targets_created": 0,
             "relationships_created": 0
         }
+    
+    def _process_single_document(self, doc: Document, stats: Dict[str, int]) -> None:
+        """Process a single document for entity extraction."""
+        # Extract clinical trials from any document that contains NCT codes
+        if "NCT" in doc.content:
+            self._extract_clinical_trial_entities(doc)
+            stats["clinical_trials_created"] += 1
         
-        for doc in documents:
-            try:
-                # Extract clinical trials from any document that contains NCT codes
-                if "NCT" in doc.content:
-                    self._extract_clinical_trial_entities(doc)
-                    stats["clinical_trials_created"] += 1
-                
-                if doc.source_type in ["company_about", "company_pipeline", "company_products", "company_oncology"]:
-                    self._extract_company_entities(doc)
-                    stats["companies_created"] += 1
-                    
-                elif doc.source_type in ["fda_drug_approval", "fda_comprehensive_approval", "drugs_com_profile"]:
-                    self._extract_drug_entities(doc)
-                    stats["drugs_created"] += 1
-                    
-            except Exception as e:
-                logger.error(f"Error processing document {doc.id}: {e}")
-                continue
-        
+        # Extract entities based on document type
+        if doc.source_type in ["company_about", "company_pipeline", "company_products", "company_oncology"]:
+            self._extract_company_entities(doc)
+            stats["companies_created"] += 1
+        elif doc.source_type in ["fda_drug_approval", "fda_comprehensive_approval", "drugs_com_profile"]:
+            self._extract_drug_entities(doc)
+            stats["drugs_created"] += 1
+    
+    def _finalize_extraction(self, stats: Dict[str, int]) -> None:
+        """Finalize the extraction process."""
         # Create relationships between entities
         self._create_relationships()
         stats["relationships_created"] = 1
         
         self.db.commit()
         logger.info(f"Entity extraction completed: {stats}")
-        return stats
     
     def _extract_company_entities(self, doc: Document):
         """Extract company information from company documents."""
@@ -174,15 +188,19 @@ class EntityExtractor:
                 if name.lower() not in ["the", "and", "or", "for", "with", "by"]:
                     return name
         
-        # Fallback: extract from URL
-        if "merck" in content.lower():
-            return "Merck & Co."
-        elif "bristol" in content.lower() or "myers" in content.lower():
-            return "Bristol Myers Squibb"
-        elif "roche" in content.lower():
-            return "Roche"
-        elif "pfizer" in content.lower():
-            return "Pfizer"
+        # Fallback: extract from URL using dictionary mapping
+        content_lower = content.lower()
+        company_mappings = {
+            "merck": "Merck & Co.",
+            "bristol": "Bristol Myers Squibb",
+            "myers": "Bristol Myers Squibb", 
+            "roche": "Roche",
+            "pfizer": "Pfizer"
+        }
+        
+        for keyword, company_name in company_mappings.items():
+            if keyword in content_lower:
+                return company_name
         
         return None
     
@@ -298,28 +316,34 @@ class EntityExtractor:
         ).first()
         
         if existing_drug:
-            # Update existing drug
-            existing_drug.brand_name = drug_info.get("brand_name") or existing_drug.brand_name
-            existing_drug.drug_class = drug_info.get("drug_class") or existing_drug.drug_class
-            existing_drug.mechanism_of_action = drug_info.get("mechanism_of_action") or existing_drug.mechanism_of_action
-            existing_drug.fda_approval_status = drug_info.get("fda_approval_status", existing_drug.fda_approval_status)
-            existing_drug.fda_approval_date = drug_info.get("fda_approval_date") or existing_drug.fda_approval_date
-            existing_drug.nct_codes = drug_info.get("nct_codes", [])
-            existing_drug.company_id = company_id
+            self._update_existing_drug(existing_drug, drug_info, company_id)
         else:
-            # Create new drug
-            drug = Drug(
-                generic_name=drug_info["generic_name"],
-                brand_name=drug_info.get("brand_name"),
-                drug_class=drug_info.get("drug_class"),
-                mechanism_of_action=drug_info.get("mechanism_of_action"),
-                fda_approval_status=drug_info.get("fda_approval_status", False),
-                fda_approval_date=drug_info.get("fda_approval_date"),
-                company_id=company_id,
-                nct_codes=drug_info.get("nct_codes", []),
-                created_at=datetime.utcnow()
-            )
-            self.db.add(drug)
+            self._create_new_drug(drug_info, company_id)
+    
+    def _update_existing_drug(self, existing_drug: Drug, drug_info: Dict[str, Any], company_id: int):
+        """Update an existing drug with new information."""
+        existing_drug.brand_name = drug_info.get("brand_name") or existing_drug.brand_name
+        existing_drug.drug_class = drug_info.get("drug_class") or existing_drug.drug_class
+        existing_drug.mechanism_of_action = drug_info.get("mechanism_of_action") or existing_drug.mechanism_of_action
+        existing_drug.fda_approval_status = drug_info.get("fda_approval_status", existing_drug.fda_approval_status)
+        existing_drug.fda_approval_date = drug_info.get("fda_approval_date") or existing_drug.fda_approval_date
+        existing_drug.nct_codes = drug_info.get("nct_codes", [])
+        existing_drug.company_id = company_id
+    
+    def _create_new_drug(self, drug_info: Dict[str, Any], company_id: int):
+        """Create a new drug entity."""
+        drug = Drug(
+            generic_name=drug_info["generic_name"],
+            brand_name=drug_info.get("brand_name"),
+            drug_class=drug_info.get("drug_class"),
+            mechanism_of_action=drug_info.get("mechanism_of_action"),
+            fda_approval_status=drug_info.get("fda_approval_status", False),
+            fda_approval_date=drug_info.get("fda_approval_date"),
+            company_id=company_id,
+            nct_codes=drug_info.get("nct_codes", []),
+            created_at=datetime.utcnow()
+        )
+        self.db.add(drug)
     
     def _create_relationships(self):
         """Create relationships between entities."""
@@ -586,52 +610,71 @@ class EntityExtractor:
     
     def _validate_drug_name(self, name: str) -> bool:
         """Validate if a name is likely a drug name."""
+        # Basic validation checks
+        if not self._basic_name_validation(name):
+            return False
+        
+        # Exclusion pattern checks
+        if self._matches_exclusion_patterns(name):
+            return False
+        
+        # Positive drug indicators
+        return self._has_drug_indicators(name)
+    
+    def _basic_name_validation(self, name: str) -> bool:
+        """Perform basic name validation checks."""
+        # Length check
         if len(name) < 3 or len(name) > 100:
             return False
         
-        # Filter out clinical trial IDs
+        # Character validation
+        if not re.match(r'^[A-Za-z0-9\-\s\/\(\)]+$', name):
+            return False
+        
+        return True
+    
+    def _matches_exclusion_patterns(self, name: str) -> bool:
+        """Check if name matches exclusion patterns."""
+        # Clinical trial IDs
         if re.match(r'^NCT\d+', name.upper()):
-            return False
+            return True
         
-        # Filter out study names and codes
+        # Study names and codes
         if re.match(r'^(Lung|Breast|PanTumor|Prostate|GI|Ovarian|Esophageal)\d+$', name):
-            return False
+            return True
         
-        # Filter out generic protein/antibody terms (but be more specific)
+        # Generic protein/antibody terms
         generic_terms = {
             'ig', 'igg1', 'igg2', 'igg3', 'igg4', 'igm', 'iga', 'parp1', 'parp2', 'parp3',
             'tyk2', 'cdh6', 'ror1', 'her3', 'trop2', 'pcsk9', 'ov65'
         }
-        
         if name.lower() in generic_terms:
-            return False
+            return True
         
-        # Check if it contains only letters, numbers, and common drug characters
-        if not re.match(r'^[A-Za-z0-9\-\s\/\(\)]+$', name):
-            return False
-        
-        # Filter out common false positives (but be more specific)
+        # Common false positives
         false_positives = {
             'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
             'is', 'was', 'are', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
             'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might',
             'can', 'must', 'shall', 'accept', 'except', 'decline'
         }
-        
         if name.lower() in false_positives:
-            return False
+            return True
         
-        # Filter out incomplete drug names (ending with common words)
+        # Incomplete endings
         incomplete_endings = [' is', ' was', ' being', ' an', ' a', ' the', ' and', ' or']
         if any(name.endswith(ending) for ending in incomplete_endings):
-            return False
+            return True
         
-        # Filter out descriptive phrases (but be more specific)
+        # Descriptive phrases
         descriptive_phrases = ['drug conjugate', 'small molecule', 'therapeutic protein', 'bispecific antibody', 'peptide']
         if any(phrase in name.lower() for phrase in descriptive_phrases):
-            return False
+            return True
         
-        # More inclusive positive indicators for drug names
+        return False
+    
+    def _has_drug_indicators(self, name: str) -> bool:
+        """Check if name has positive drug indicators."""
         drug_indicators = [
             # Monoclonal antibodies
             name.lower().endswith(('mab', 'zumab', 'ximab')),
@@ -641,11 +684,9 @@ class EntityExtractor:
             name.lower().endswith('cept'),
             # CAR-T therapies
             name.lower().endswith('leucel'),
-            # ADCs (Antibody Drug Conjugates) - allow space-separated names
-            'deruxtecan' in name.lower(),
-            'vedotin' in name.lower(),
-            'tirumotecan' in name.lower(),
-            # Specific known drugs (expanded list)
+            # ADCs (Antibody Drug Conjugates)
+            any(adc in name.lower() for adc in ['deruxtecan', 'vedotin', 'tirumotecan']),
+            # Specific known drugs
             name.lower() in {
                 'pembrolizumab', 'nivolumab', 'sotatercept', 'patritumab', 'sacituzumab',
                 'zilovertamab', 'nemtabrutinib', 'quavonlimab', 'clesrovimab', 'ifinatamab',
@@ -655,11 +696,9 @@ class EntityExtractor:
                 'blinatumomab', 'dupilumab', 'ruxolitinib', 'tisagenlecleucel', 'yescarta',
                 'kymriah', 'carvykti', 'abecma', 'breyanzi'
             },
-            # Merck drug codes
-            re.match(r'^mk-\d+', name.lower()),
-            # Roche drug codes
-            re.match(r'^rg\d+', name.lower()),
-            # Allow drug names with spaces (like "Patritumab Deruxtecan")
+            # Company drug codes
+            re.match(r'^mk-\d+', name.lower()) or re.match(r'^rg\d+', name.lower()),
+            # Multi-word drug names
             len(name.split()) >= 2 and any(word.endswith(('mab', 'nib', 'tinib', 'cept', 'leucel')) for word in name.split()),
         ]
         
@@ -669,16 +708,32 @@ class EntityExtractor:
         """Infer drug class from drug name."""
         name_lower = drug_name.lower()
         
-        if name_lower.endswith(('mab', 'zumab', 'ximab')):
-            return "Monoclonal Antibody"
-        elif name_lower.endswith(('nib', 'tinib')):
+        # Define drug class mappings
+        class_mappings = {
+            # Monoclonal Antibodies
+            ('mab', 'zumab', 'ximab'): "Monoclonal Antibody",
+            # Small Molecules
+            ('nib', 'tinib'): "Small Molecule",
+            # ADCs
+            ('deruxtecan', 'vedotin'): "ADC",
+            # Company codes
+            ('mk-', 'rg'): "Small Molecule"
+        }
+        
+        # Check suffixes first
+        for suffixes, drug_class in class_mappings.items():
+            if any(name_lower.endswith(suffix) for suffix in suffixes):
+                return drug_class
+        
+        # Check prefixes
+        if name_lower.startswith(('mk-', 'rg')):
             return "Small Molecule"
-        elif 'deruxtecan' in name_lower or 'vedotin' in name_lower:
+        
+        # Check for specific patterns
+        if any(pattern in name_lower for pattern in ['deruxtecan', 'vedotin']):
             return "ADC"
-        elif name_lower.startswith('mk-') or name_lower.startswith('rg'):
-            return "Small Molecule"
-        else:
-            return "Unknown"
+        
+        return "Unknown"
 
     def _load_companies_from_csv(self) -> List[Dict[str, str]]:
         """Load companies data from CSV file."""
@@ -695,7 +750,6 @@ class EntityExtractor:
     def _process_company_oncology_pipeline(self, company_data: Dict[str, str]):
         """Process a company's oncology pipeline."""
         company_name = company_data['Company']
-        pipeline_url = company_data['OncologyPipelineURL']
         
         # Get or create company
         company = self._get_or_create_company(company_name, company_data['OfficialWebsite'])

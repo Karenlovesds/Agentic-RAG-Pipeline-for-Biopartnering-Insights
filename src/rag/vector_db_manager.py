@@ -99,78 +99,117 @@ class VectorDBManager:
         
         # Load ground truth data
         if not self.gt_loader._data.empty:
-            for _, row in self.gt_loader._data.iterrows():
-                # Create comprehensive text chunk for each ground truth entry
-                text_parts = []
-                
-                if pd.notna(row['Generic name']):
-                    text_parts.append(f"Drug: {row['Generic name']}")
-                if pd.notna(row['Brand name']):
-                    text_parts.append(f"Brand: {row['Brand name']}")
-                if pd.notna(row['Partner']):
-                    text_parts.append(f"Company: {row['Partner']}")
-                if pd.notna(row['Target']):
-                    text_parts.append(f"Target: {row['Target']}")
-                if pd.notna(row['Mechanism']):
-                    text_parts.append(f"Mechanism: {row['Mechanism']}")
-                if pd.notna(row['Drug Class']):
-                    text_parts.append(f"Drug Class: {row['Drug Class']}")
-                if pd.notna(row['Indication Approved']):
-                    text_parts.append(f"Indication: {row['Indication Approved']}")
-                if pd.notna(row['Current Clinical Trials']):
-                    text_parts.append(f"Current Clinical Trials: {row['Current Clinical Trials']}")
-                if pd.notna(row['Tickets']):
-                    text_parts.append(f"Ticket: {row['Tickets']}")
-                
-                if text_parts:
-                    chunk_text = " | ".join(text_parts)
-                    chunks.append({
-                        "text": chunk_text,
-                        "metadata": {
-                            "source": "ground_truth",
-                            "generic_name": str(row['Generic name']) if pd.notna(row['Generic name']) else "",
-                            "brand_name": str(row['Brand name']) if pd.notna(row['Brand name']) else "",
-                            "company": str(row['Partner']) if pd.notna(row['Partner']) else "",
-                            "target": str(row['Target']) if pd.notna(row['Target']) else "",
-                            "mechanism": str(row['Mechanism']) if pd.notna(row['Mechanism']) else "",
-                            "drug_class": str(row['Drug Class']) if pd.notna(row['Drug Class']) else "",
-                            "indication": str(row['Indication Approved']) if pd.notna(row['Indication Approved']) else "",
-                            "clinical_trials": str(row['Current Clinical Trials']) if pd.notna(row['Current Clinical Trials']) else "",
-                            "ticket": str(row['Tickets']) if pd.notna(row['Tickets']) else ""
-                        }
-                    })
+            chunks.extend(self._create_ground_truth_chunks())
         
         # Load database data
+        chunks.extend(self._create_database_chunks())
+        
+        # Load FDA data
+        chunks.extend(self._create_fda_chunks())
+        
+        # Load drugs.com data
+        chunks.extend(self._create_drugs_com_chunks())
+        
+        return chunks
+    
+    def _create_ground_truth_chunks(self) -> List[Dict[str, Any]]:
+        """Create chunks from ground truth data."""
+        chunks = []
+        
+        for _, row in self.gt_loader._data.iterrows():
+            text_parts = self._extract_ground_truth_text_parts(row)
+            
+            if text_parts:
+                chunk_text = " | ".join(text_parts)
+                chunks.append({
+                    "text": chunk_text,
+                    "metadata": self._create_ground_truth_metadata(row)
+                })
+        
+        return chunks
+    
+    def _extract_ground_truth_text_parts(self, row) -> List[str]:
+        """Extract text parts from ground truth row."""
+        text_parts = []
+        
+        if pd.notna(row['Generic name']):
+            text_parts.append(f"Drug: {row['Generic name']}")
+        if pd.notna(row['Brand name']):
+            text_parts.append(f"Brand: {row['Brand name']}")
+        if pd.notna(row['Partner']):
+            text_parts.append(f"Company: {row['Partner']}")
+        if pd.notna(row['Target']):
+            text_parts.append(f"Target: {row['Target']}")
+        if pd.notna(row['Mechanism']):
+            text_parts.append(f"Mechanism: {row['Mechanism']}")
+        if pd.notna(row['Drug Class']):
+            text_parts.append(f"Drug Class: {row['Drug Class']}")
+        if pd.notna(row['Indication Approved']):
+            text_parts.append(f"Indication: {row['Indication Approved']}")
+        if pd.notna(row['Current Clinical Trials']):
+            text_parts.append(f"Current Clinical Trials: {row['Current Clinical Trials']}")
+        if pd.notna(row['Tickets']):
+            text_parts.append(f"Ticket: {row['Tickets']}")
+        
+        return text_parts
+    
+    def _create_ground_truth_metadata(self, row) -> Dict[str, str]:
+        """Create metadata for ground truth chunk."""
+        return {
+            "source": "ground_truth",
+            "generic_name": str(row['Generic name']) if pd.notna(row['Generic name']) else "",
+            "brand_name": str(row['Brand name']) if pd.notna(row['Brand name']) else "",
+            "company": str(row['Partner']) if pd.notna(row['Partner']) else "",
+            "target": str(row['Target']) if pd.notna(row['Target']) else "",
+            "mechanism": str(row['Mechanism']) if pd.notna(row['Mechanism']) else "",
+            "drug_class": str(row['Drug Class']) if pd.notna(row['Drug Class']) else "",
+            "indication": str(row['Indication Approved']) if pd.notna(row['Indication Approved']) else "",
+            "clinical_trials": str(row['Current Clinical Trials']) if pd.notna(row['Current Clinical Trials']) else "",
+            "ticket": str(row['Tickets']) if pd.notna(row['Tickets']) else ""
+        }
+    
+    def _extract_database_text_parts(self, drug) -> List[str]:
+        """Extract text parts from database drug."""
+        text_parts = []
+        text_parts.append(f"Drug: {drug.generic_name}")
+        if drug.brand_name:
+            text_parts.append(f"Brand: {drug.brand_name}")
+        text_parts.append(f"Company: {drug.company.name}")
+        if drug.mechanism_of_action:
+            text_parts.append(f"Mechanism: {drug.mechanism_of_action}")
+        if drug.drug_class:
+            text_parts.append(f"Drug Class: {drug.drug_class}")
+        return text_parts
+    
+    def _create_database_metadata(self, drug) -> Dict[str, str]:
+        """Create metadata for database drug chunk."""
+        return {
+            "source": "database",
+            "generic_name": drug.generic_name or "",
+            "brand_name": drug.brand_name or "",
+            "company": drug.company.name,
+            "target": "",
+            "mechanism": drug.mechanism_of_action or "",
+            "drug_class": drug.drug_class or "",
+            "indication": "",
+            "ticket": ""
+        }
+    
+    def _create_database_chunks(self) -> List[Dict[str, Any]]:
+        """Create chunks from database data."""
+        chunks = []
+        
         try:
             db = SessionLocal()
             
             # Add drugs from database
             drugs = db.query(Drug).join(Company).all()
             for drug in drugs:
-                text_parts = []
-                text_parts.append(f"Drug: {drug.generic_name}")
-                if drug.brand_name:
-                    text_parts.append(f"Brand: {drug.brand_name}")
-                text_parts.append(f"Company: {drug.company.name}")
-                if drug.mechanism_of_action:
-                    text_parts.append(f"Mechanism: {drug.mechanism_of_action}")
-                if drug.drug_class:
-                    text_parts.append(f"Drug Class: {drug.drug_class}")
-                
+                text_parts = self._extract_database_text_parts(drug)
                 chunk_text = " | ".join(text_parts)
                 chunks.append({
                     "text": chunk_text,
-                    "metadata": {
-                        "source": "database",
-                        "generic_name": drug.generic_name or "",
-                        "brand_name": drug.brand_name or "",
-                        "company": drug.company.name,
-                        "target": "",
-                        "mechanism": drug.mechanism_of_action or "",
-                        "drug_class": drug.drug_class or "",
-                        "indication": "",
-                        "ticket": ""
-                    }
+                    "metadata": self._create_database_metadata(drug)
                 })
             
             # Add clinical trials
@@ -368,10 +407,10 @@ class VectorDBManager:
             logger.error(f"Error generating embeddings: {e}")
             raise
     
-    def populate_database(self):
-        """Populate vector database with embeddings."""
+    def populate_database(self, batch_size: int = 32):
+        """Populate vector database with embeddings using batch processing for memory optimization."""
         try:
-            logger.info("Starting vector database population...")
+            logger.info(f"Starting vector database population with batch size: {batch_size}")
             
             # Create text chunks
             chunks = self._create_text_chunks()
@@ -380,25 +419,35 @@ class VectorDBManager:
                 logger.warning("No chunks created, skipping population")
                 return
             
-            # Extract texts and metadata
-            texts = [chunk["text"] for chunk in chunks]
-            metadatas = [chunk["metadata"] for chunk in chunks]
-            ids = [f"chunk_{i}" for i in range(len(chunks))]
+            logger.info(f"Processing {len(chunks)} chunks in batches of {batch_size}")
             
-            # Generate embeddings
-            logger.info("Generating embeddings...")
-            embeddings = self._generate_embeddings(texts)
+            # Process chunks in batches to reduce memory usage
+            total_added = 0
+            for i in range(0, len(chunks), batch_size):
+                batch_chunks = chunks[i:i + batch_size]
+                
+                # Extract texts and metadata for this batch
+                texts = [chunk["text"] for chunk in batch_chunks]
+                metadatas = [chunk["metadata"] for chunk in batch_chunks]
+                ids = [f"chunk_{i + j}" for j in range(len(batch_chunks))]
+                
+                # Generate embeddings for this batch
+                logger.info(f"Generating embeddings for batch {i//batch_size + 1} ({len(batch_chunks)} chunks)...")
+                embeddings = self._generate_embeddings(texts)
+                
+                # Add batch to ChromaDB collection
+                logger.info(f"Adding batch {i//batch_size + 1} to ChromaDB...")
+                self.collection.add(
+                    embeddings=embeddings,
+                    documents=texts,
+                    metadatas=metadatas,
+                    ids=ids
+                )
+                
+                total_added += len(batch_chunks)
+                logger.info(f"Added {total_added}/{len(chunks)} chunks to vector database")
             
-            # Add to ChromaDB collection
-            logger.info("Adding embeddings to ChromaDB...")
-            self.collection.add(
-                embeddings=embeddings,
-                documents=texts,
-                metadatas=metadatas,
-                ids=ids
-            )
-            
-            logger.info(f"Successfully populated vector database with {len(chunks)} chunks")
+            logger.info(f"Successfully populated vector database with {total_added} chunks using batch processing")
             
         except Exception as e:
             logger.error(f"Error populating vector database: {e}")

@@ -183,7 +183,7 @@ Examples:
             
     elif args.command == 'drug-summary':
         import subprocess
-        cmd = [sys.executable, 'scripts/processing/regenerate_drug_summary.py']
+        cmd = [sys.executable, 'src/processing/regenerate_drug_summary.py']
         if args.verbose:
             cmd.append('--verbose')
         subprocess.run(cmd)
