@@ -9,7 +9,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.models.database import get_db
 from src.models.entities import Drug, Company, ClinicalTrial, Document
-from src.processing.comprehensive_entity_extractor import ComprehensiveEntityExtractor
 from datetime import datetime
 
 def regenerate_drug_summary():

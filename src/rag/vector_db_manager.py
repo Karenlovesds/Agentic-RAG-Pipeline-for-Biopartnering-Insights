@@ -104,11 +104,7 @@ class VectorDBManager:
         # Load database data
         chunks.extend(self._create_database_chunks())
         
-        # Load FDA data
-        chunks.extend(self._create_fda_chunks())
-        
-        # Load drugs.com data
-        chunks.extend(self._create_drugs_com_chunks())
+        # External document chunkers removed to avoid missing methods and reduce scope
         
         return chunks
     
@@ -136,8 +132,8 @@ class VectorDBManager:
             text_parts.append(f"Drug: {row['Generic name']}")
         if pd.notna(row['Brand name']):
             text_parts.append(f"Brand: {row['Brand name']}")
-        if pd.notna(row['Partner']):
-            text_parts.append(f"Company: {row['Partner']}")
+        if pd.notna(row['Company']):
+            text_parts.append(f"Company: {row['Company']}")
         if pd.notna(row['Target']):
             text_parts.append(f"Target: {row['Target']}")
         if pd.notna(row['Mechanism']):
@@ -148,8 +144,6 @@ class VectorDBManager:
             text_parts.append(f"Indication: {row['Indication Approved']}")
         if pd.notna(row['Current Clinical Trials']):
             text_parts.append(f"Current Clinical Trials: {row['Current Clinical Trials']}")
-        if pd.notna(row['Tickets']):
-            text_parts.append(f"Ticket: {row['Tickets']}")
         
         return text_parts
     
@@ -159,13 +153,12 @@ class VectorDBManager:
             "source": "ground_truth",
             "generic_name": str(row['Generic name']) if pd.notna(row['Generic name']) else "",
             "brand_name": str(row['Brand name']) if pd.notna(row['Brand name']) else "",
-            "company": str(row['Partner']) if pd.notna(row['Partner']) else "",
+            "company": str(row['Company']) if pd.notna(row['Company']) else "",
             "target": str(row['Target']) if pd.notna(row['Target']) else "",
             "mechanism": str(row['Mechanism']) if pd.notna(row['Mechanism']) else "",
             "drug_class": str(row['Drug Class']) if pd.notna(row['Drug Class']) else "",
             "indication": str(row['Indication Approved']) if pd.notna(row['Indication Approved']) else "",
-            "clinical_trials": str(row['Current Clinical Trials']) if pd.notna(row['Current Clinical Trials']) else "",
-            "ticket": str(row['Tickets']) if pd.notna(row['Tickets']) else ""
+            "clinical_trials": str(row['Current Clinical Trials']) if pd.notna(row['Current Clinical Trials']) else ""
         }
     
     def _extract_database_text_parts(self, drug) -> List[str]:
@@ -236,7 +229,6 @@ class VectorDBManager:
                         "mechanism": "",
                         "drug_class": "",
                         "indication": "",
-                        "ticket": "",
                         "nct_id": trial.nct_id or "",
                         "phase": trial.phase or "",
                         "status": trial.status or ""
@@ -281,7 +273,6 @@ class VectorDBManager:
                         "mechanism": drug.mechanism_of_action or "",
                         "drug_class": drug.drug_class or "",
                         "indication": ', '.join([di.indication.name for di in drug.indications]) if drug.indications else "",
-                        "ticket": "",
                         "fda_approval_date": drug.fda_approval_date.strftime('%Y-%m-%d') if drug.fda_approval_date else ""
                     }
                 })
@@ -312,7 +303,6 @@ class VectorDBManager:
                         "mechanism": "",
                         "drug_class": "",
                         "indication": "",
-                        "ticket": "",
                         "title": doc.title or "",
                         "url": doc.source_url,
                         "retrieval_date": doc.retrieval_date.strftime('%Y-%m-%d') if doc.retrieval_date else ""
@@ -349,7 +339,6 @@ class VectorDBManager:
                         "mechanism": "",
                         "drug_class": "",
                         "indication": "",
-                        "ticket": "",
                         "title": doc.title or "",
                         "url": doc.source_url,
                         "retrieval_date": doc.retrieval_date.strftime('%Y-%m-%d') if doc.retrieval_date else ""
@@ -410,7 +399,7 @@ class VectorDBManager:
     def populate_database(self, batch_size: int = 32):
         """Populate vector database with embeddings using batch processing for memory optimization."""
         try:
-            logger.info(f"Starting vector database population with batch size: {batch_size}")
+            logger.info(f"Start population: batch_size={batch_size}")
             
             # Create text chunks
             chunks = self._create_text_chunks()
@@ -419,7 +408,7 @@ class VectorDBManager:
                 logger.warning("No chunks created, skipping population")
                 return
             
-            logger.info(f"Processing {len(chunks)} chunks in batches of {batch_size}")
+            logger.info(f"Total chunks: {len(chunks)}")
             
             # Process chunks in batches to reduce memory usage
             total_added = 0
@@ -432,11 +421,9 @@ class VectorDBManager:
                 ids = [f"chunk_{i + j}" for j in range(len(batch_chunks))]
                 
                 # Generate embeddings for this batch
-                logger.info(f"Generating embeddings for batch {i//batch_size + 1} ({len(batch_chunks)} chunks)...")
                 embeddings = self._generate_embeddings(texts)
                 
                 # Add batch to ChromaDB collection
-                logger.info(f"Adding batch {i//batch_size + 1} to ChromaDB...")
                 self.collection.add(
                     embeddings=embeddings,
                     documents=texts,
@@ -445,9 +432,8 @@ class VectorDBManager:
                 )
                 
                 total_added += len(batch_chunks)
-                logger.info(f"Added {total_added}/{len(chunks)} chunks to vector database")
             
-            logger.info(f"Successfully populated vector database with {total_added} chunks using batch processing")
+            logger.info(f"Population complete. Added {total_added} chunks.")
             
         except Exception as e:
             logger.error(f"Error populating vector database: {e}")

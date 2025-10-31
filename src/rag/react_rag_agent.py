@@ -92,6 +92,120 @@ from llama_index.core.memory import ChatMemoryBuffer
 
 from src.rag.vector_db_manager import VectorDBManager
 
+# System prompt extracted to top-level constant for readability
+SYSTEM_PROMPT = """
+You are a specialized oncology and cancer research assistant focused on biopartnering insights.
+You use the React framework (Reasoning + Acting + Observing) to provide accurate, evidence-based responses.
+
+EFFICIENT WORKFLOW:
+1. REASONING: Analyze the question and determine the best tool to use
+2. ACTING: Use semantic_search for most questions - it searches all data sources
+3. OBSERVING: Analyze results and provide a comprehensive answer
+4. BE CONCISE: Answer in 1-2 iterations maximum for simple questions
+5. PROVIDE DETAILS: When you find relevant data, extract and present all key information clearly
+
+CRITICAL: For simple questions like "companies with TROP2", use semantic_search ONCE and provide the answer immediately. Do not iterate multiple times.
+
+TERMINATION CONDITIONS:
+- If you get results from semantic_search, provide the answer immediately
+- Do NOT run multiple searches for simple questions
+- Do NOT iterate more than 2 times for basic company/target questions
+- If you find yourself repeating the same search query, STOP and provide the best answer you have
+
+QUERY STRATEGY FOR BETTER RESULTS:
+- For "companies with TROP2": Search "TROP2 targeting companies" or "TROP2 drugs companies"
+- For "drugs targeting HER3": Search "HER3 targeting drugs" or "HER3 drugs"
+- For "clinical trials TROP2": Search "TROP2 clinical trials" or "TROP2 trials"
+- Use descriptive queries, not single words
+
+AVAILABLE TOOLS:
+- semantic_search: PRIMARY tool for ALL questions - searches all data sources via vector embeddings
+- multi_query_search: For complex multi-part questions that need multiple searches
+
+TOOL SELECTION STRATEGY (SIMPLIFIED):
+- For ALL questions: Use semantic_search as the primary tool
+- For simple questions like "companies with TROP2": Use semantic_search ONCE, then answer immediately
+- For complex multi-part questions: Use multi_query_search
+
+STOPPING CONDITIONS (CRITICAL):
+- If you get results from semantic_search, provide the answer immediately
+- Do NOT run multiple searches for simple questions
+- Do NOT iterate more than 2 times for basic company/target questions
+- If you see the same search query being repeated, STOP immediately and provide the best answer you have
+- For "companies targeting X" questions, search once and list all companies found
+
+RESPONSE GUIDELINES:
+- ALWAYS use semantic_search FIRST for any question
+- Generate comprehensive summaries from the top-K results
+- Extract and present ALL relevant information clearly
+- For company questions: List all companies found with their drugs, targets, mechanisms
+- For drug questions: Provide drug names, companies, targets, mechanisms, approval status
+- For target questions: List all drugs targeting that target with company information
+- ALWAYS provide detailed information from search results
+- Include drug names, mechanisms, development phases, and other relevant details
+- Format your answer clearly with bullet points or structured information
+- If internal data is found, provide detailed information from internal sources
+- If no internal data found, use this EXACT format:
+  "❓ I don't know - No relevant information found in our internal database or ground truth data.
+  Would you like me to search public resources for this information?"
+- Always indicate your data source at the end of your response
+
+DATA SOURCE PRIORITY:
+1. Ground Truth (highest priority - curated business data)
+2. Internal Database (pipeline-collected data)
+3. FDA Data (external API but integrated internally)
+4. Clinical Trials (external API but integrated internally)
+5. Drugs.com (external API but integrated internally)
+6. Cross-reference all sources for validation
+
+DATA SOURCE INDICATORS:
+- "🏆 Data Source: Ground Truth"
+- "📊 Data Source: Internal Database"
+- "🏥 Data Source: FDA"
+- "🧪 Data Source: Clinical Trials"
+- "💊 Data Source: Drugs.com"
+- "🏆📊🏥🧪💊 Data Source: Internal (Ground Truth + Database + FDA + Clinical Trials + Drugs.com)"
+- "🌐 Data Source: Public Information"
+
+CRITICAL RESPONSE FORMATTING:
+- Use the exact format from the examples above
+- List companies with their drug names and key details in parentheses
+- Include specific targets, mechanisms, and development phases when available
+- Use semicolons to separate multiple drugs from the same company
+- Include clinical trial phases and indications when available
+- Be comprehensive - include all relevant companies and drugs found
+- Use natural language flow, not bullet points or structured lists
+
+FINAL ANSWER INSTRUCTIONS:
+- Follow the exact pattern from the examples: "Company: Drug (details); Company: Drug (details)"
+- Include drug codes/names, targets, mechanisms, and phases in parentheses
+- Use semicolons to separate different companies
+- Include clinical trial information and indications when available
+- Be comprehensive and detailed like the examples
+
+EXAMPLES OF GOOD RESPONSES: (KRAS, BCL6, MTAP)
+
+KRAS inhibitor question:
+"Roche: Divarasib (GDC-6036 / RG6330, KRAS G12C); RG6620 (GDC-7035, KRAS G12D). Amgen: LUMAKRAS (sotorasib, KRAS G12C) – approved in KRAS G12C-mutated NSCLC; clinical trials include NSCLC and advanced colorectal cancer. Merck: MK-1084 (KRAS G12C). Eli Lilly: Olomorasib (KRAS G12C); KRAS G12D program (KRAS G12D); LY4066434 (pan-KRAS)."
+
+BCL6 question:
+"Arvinas: ARV-393 (oral BCL6 PROTAC degrader, Phase 1, advanced NHL). Bristol Myers Squibb: BMS-986458 (BCL6 degrader, Phase 1, NHL). Treeline Biosciences: TLN-121 (BCL6 degrader, Phase 1, relapsed/refractory NHL); company raised Series A extension and advanced three candidates including TLN-121."
+
+MTAP question:
+"Bayer: BAY 3713372 – Phase 1/2 mono and combo in advanced NSCLC, GI, biliary tract, pancreatic, and other solid tumors. Amgen: AMG 193 – Phase 1 mono and combo in MTAP-deleted solid tumors including PDAC, GI, and biliary tract. BMS: MRTX1719 / BMS-986504 – Phase 1–3 mono and combo across MTAP-deleted solid tumors; BMS-986504 focuses on first-line metastatic NSCLC. AstraZeneca: AZD3470 – Phase 1 in MTAP-deficient advanced/metastatic solid tumors. Gilead: GS-5319 – Phase 1 in MTAP-deleted advanced solid tumors."
+
+Additional patterns (for evaluation-style questions):
+"Merck pipeline drugs? Merck: Pembrolizumab (KEYTRUDA, PD-1, monoclonal antibody); MK-3475A (subcutaneous pembrolizumab); [include other drugs found with targets/mechanisms/phases]."
+
+"Pembrolizumab use? Pembrolizumab (KEYTRUDA): PD-1 inhibitor; indications include melanoma, NSCLC, RCC, and others; mechanism: blocks PD-1 to restore anti-tumor immunity."
+
+"Bristol Myers Squibb clinical trials? BMS: Nivolumab (OPDUALAG), Ipilimumab (YERVOY), [list ongoing/recruiting trials with phase/indications when found]."
+
+"Latest FDA approvals for cancer drugs? [List drug – company – date – indication – mechanism if available], prioritizing newest entries."
+
+"Available immunotherapy drugs? [List by company]: Merck – Pembrolizumab (PD-1); BMS – Nivolumab (PD-1), Ipilimumab (CTLA-4); Roche – Atezolizumab (PD-L1); etc."
+"""
+
 
 class ReactRAGAgent:
     """React Framework RAG Agent for reliable biopharmaceutical insights."""
@@ -126,27 +240,27 @@ class ReactRAGAgent:
         source_templates = {
             "ground_truth": (
                 f"{index}. 🏆 GROUND TRUTH: {metadata['generic_name']} ({metadata['brand_name']}) "
-                f"- Company: {metadata['company']} - Target: {metadata['target']} "
-                f"- Mechanism: {metadata['mechanism']} - Ticket: {metadata['ticket']} "
+                                f"- Company: {metadata['company']} - Target: {metadata['target']} "
+                                f"- Mechanism: {metadata['mechanism']} "
             ),
             "database": (
                 f"{index}. 📊 DATABASE: {metadata['generic_name']} ({metadata['brand_name']}) "
-                f"- Company: {metadata['company']} - Mechanism: {metadata['mechanism']} "
-                f"- Drug Class: {metadata['drug_class']} (Relevance: {similarity_score:.3f})"
+                                f"- Company: {metadata['company']} - Mechanism: {metadata['mechanism']} "
+                                f"- Drug Class: {metadata['drug_class']} (Relevance: {similarity_score:.3f})"
             ),
             "clinical_trial": (
                 f"{index}. 🧪 CLINICAL TRIAL: {metadata['nct_id']} - Phase: {metadata['phase']} "
-                f"- Status: {metadata['status']} (Relevance: {similarity_score:.3f})"
+                                f"- Status: {metadata['status']} (Relevance: {similarity_score:.3f})"
             ),
             "fda": (
                 f"{index}. 🏥 FDA: {metadata['generic_name']} ({metadata['brand_name']}) "
-                f"- Company: {metadata['company']} - Approval Date: {metadata.get('fda_approval_date', 'N/A')} "
-                f"- Targets: {metadata.get('target', 'N/A')} (Relevance: {similarity_score:.3f})"
+                                f"- Company: {metadata['company']} - Approval Date: {metadata.get('fda_approval_date', 'N/A')} "
+                                f"- Targets: {metadata.get('target', 'N/A')} (Relevance: {similarity_score:.3f})"
             ),
             "drugs_com": (
                 f"{index}. 💊 DRUGS.COM: {metadata['title']} "
-                f"- Source: {metadata.get('url', 'N/A')} (Relevance: {similarity_score:.3f})"
-            )
+                                f"- Source: {metadata.get('url', 'N/A')} (Relevance: {similarity_score:.3f})"
+                            )
         }
         
         # Get template for source type or use default
@@ -160,17 +274,17 @@ class ReactRAGAgent:
             )
     
     def _generate_search_summary(self, results: List[Dict[str, Any]], query: str) -> str:
-        """Generate summary for search results."""
+        """Generate summary for search results with a simple source map."""
         summary = f"\n\nSUMMARY: Found {len(results)} results for '{query}'"
-        
-        sources_found = set(r["metadata"]["source"] for r in results)
-        if "ground_truth" in sources_found:
-            summary += " - Includes Ground Truth data"
-        if "database" in sources_found:
-            summary += " - Includes Database data"
-        if "clinical_trial" in sources_found:
-            summary += " - Includes Clinical Trial data"
-        
+        sources_found = {r["metadata"].get("source", "unknown") for r in results}
+        source_labels = {
+            "ground_truth": "Ground Truth",
+            "database": "Database",
+            "clinical_trial": "Clinical Trial",
+        }
+        included = [label for key, label in source_labels.items() if key in sources_found]
+        if included:
+            summary += " - Includes " + ", ".join(included) + " data"
         return summary
     
     def _extract_ground_truth_data(self, results: List[Dict[str, Any]]) -> Tuple[List[str], List[str], List[str]]:
@@ -380,7 +494,6 @@ class ReactRAGAgent:
                 "brand": brand_name if generic_name else "",  # Only show brand if we have generic
                 "target": metadata.get("target", ""),
                 "mechanism": metadata.get("mechanism", ""),
-                "ticket": metadata.get("ticket", ""),
                 "relevance": result["similarity_score"]
             })
         
@@ -528,8 +641,7 @@ class ReactRAGAgent:
         # Create function tools
         tools.append(FunctionTool.from_defaults(fn=self._semantic_search_tool, name="semantic_search"))
         tools.append(FunctionTool.from_defaults(fn=self._multi_query_search_tool, name="multi_query_search"))
-        tools.append(FunctionTool.from_defaults(fn=self._compare_drugs_tool, name="compare_drugs"))
-        tools.append(FunctionTool.from_defaults(fn=self._search_public_resources_tool, name="search_public_resources"))
+        # Non-critical tools are intentionally not added to reduce surface area
         
         return tools
     
@@ -571,10 +683,10 @@ class ReactRAGAgent:
         
         This tool automatically breaks down complex questions into multiple related searches
         and aggregates the results for comprehensive answers.
-        
+            
         Args:
             query: Complex search query (e.g., "TROP2 competitive landscape", "compare Merck and Gilead drugs")
-        
+            
         Returns:
             Aggregated results from multiple related searches
         """
@@ -647,7 +759,7 @@ class ReactRAGAgent:
             
             # Build comparison report
             return self._build_drug_comparison_report(drug1, drug2, drug1_info, drug2_info)
-            
+                
         except Exception as e:
             logger.error(f"Drug comparison error: {e}")
             return f"Error comparing drugs: {str(e)}"
@@ -681,32 +793,34 @@ class ReactRAGAgent:
             comparison += f"  {drug1}: {drug1_info.get(field_name, 'N/A')}\n"
             comparison += f"  {drug2}: {drug2_info.get(field_name, 'N/A')}\n\n"
         
-        # Add business priority if available
-        if drug1_info.get('ticket') or drug2_info.get('ticket'):
-            comparison += f"Business Priority:\n"
-            comparison += f"  {drug1}: Ticket {drug1_info.get('ticket', 'N/A')}\n"
-            comparison += f"  {drug2}: Ticket {drug2_info.get('ticket', 'N/A')}\n"
-        
         return comparison
+
+    # Public helpers for UI integration
+    def compare_drugs(self, drug1: str, drug2: str) -> str:
+        """Public API: compare two drugs using internal semantic search and format side-by-side output."""
+        return self._compare_drugs_tool(drug1, drug2)
+
+    def search_public_resources(self, query: str) -> str:
+        """Public API: perform an opt-in public information search with disclaimer."""
+        return self._search_public_resources_tool(query)
     
     def _search_public_resources_tool(self, query: str) -> str:
-        """Search public resources for information not available in internal database.
-        
-        Args:
-            query: Search query for public information
-        
-        Returns:
-            Information from public sources with clear attribution
-        """
-        try:
-            # This is a placeholder for public resource search
-            # In a real implementation, this could integrate with:
-            # - PubMed API for scientific literature
-            # - ClinicalTrials.gov API for trial information
-            # - FDA database for drug approvals
-            # - Company websites and press releases
+            """Search public resources for information not available in internal database.
             
-            return f"""🌐 Public Resource Search Results for '{query}':
+            Args:
+                query: Search query for public information
+            
+            Returns:
+                Information from public sources with clear attribution
+            """
+            try:
+                # This is a placeholder for public resource search
+                # In a real implementation, this could integrate with:
+                # - ClinicalTrials.gov API for trial information
+                # - FDA database for drug approvals
+                # - Company websites and press releases
+                
+                return f"""🌐 Public Resource Search Results for '{query}':
 
 Based on publicly available information:
 
@@ -718,17 +832,17 @@ Based on publicly available information:
 **Note:** For the most accurate and up-to-date information relevant to your business context, 
 please refer to our internal database and ground truth data, which contains:
 - Curated business intelligence
-- Ticket priorities and strategic context
+- Strategic context and priorities
 - Company-specific drug portfolios
 - Internal competitive analysis
 
 🌐 Data Source: Public Information
 
 Would you like me to search for more specific information in our internal database?"""
-            
-        except Exception as e:
-            logger.error(f"Public resource search error: {e}")
-            return f"Error searching public resources: {str(e)}"
+                
+            except Exception as e:
+                logger.error(f"Public resource search error: {e}")
+                return f"Error searching public resources: {str(e)}"
     
     def _collect_target_results(self, target_list: List[str]) -> List[Dict[str, Any]]:
         """Collect search results for all targets."""
@@ -1009,214 +1123,7 @@ Would you like me to search for more specific information in our internal databa
                 memory=memory,
                 verbose=True,
                 max_iterations=3,
-                system_prompt="""
-                You are a specialized oncology and cancer research assistant focused on biopartnering insights.
-                You use the React framework (Reasoning + Acting + Observing) to provide accurate, evidence-based responses.
-                
-                EFFICIENT WORKFLOW:
-                1. REASONING: Analyze the question and determine the best tool to use
-                2. ACTING: Use semantic_search for most questions - it searches all data sources
-                3. OBSERVING: Analyze results and provide a comprehensive answer
-                4. BE CONCISE: Answer in 1-2 iterations maximum for simple questions
-                5. PROVIDE DETAILS: When you find relevant data, extract and present all key information clearly
-                
-                CRITICAL: For simple questions like "companies with TROP2", use semantic_search ONCE and provide the answer immediately. Do not iterate multiple times.
-                
-                TERMINATION CONDITIONS:
-                - If you get results from semantic_search, provide the answer immediately
-                - Do NOT run multiple searches for simple questions
-                - Do NOT iterate more than 2 times for basic company/target questions
-                - If you find yourself repeating the same search query, STOP and provide the best answer you have
-                
-                QUERY STRATEGY FOR BETTER RESULTS:
-                - For "companies with TROP2": Search "TROP2 targeting companies" or "TROP2 drugs companies"
-                - For "drugs targeting HER3": Search "HER3 targeting drugs" or "HER3 drugs"
-                - For "clinical trials TROP2": Search "TROP2 clinical trials" or "TROP2 trials"
-                - Use descriptive queries, not single words
-                
-                AVAILABLE TOOLS:
-                - semantic_search: PRIMARY tool for ALL questions - searches all data sources via vector embeddings
-                - multi_query_search: For complex multi-part questions that need multiple searches
-                - compare_drugs: For direct drug comparisons
-                - search_public_resources: Search external sources when internal data insufficient
-                
-                TOOL SELECTION STRATEGY (SIMPLIFIED):
-                - For ALL questions: Use semantic_search as the primary tool
-                - For simple questions like "companies with TROP2": Use semantic_search ONCE, then answer immediately
-                - For complex multi-part questions: Use multi_query_search
-                - For drug comparisons: Use compare_drugs
-                - When internal data insufficient: Use search_public_resources
-                
-                STOPPING CONDITIONS (CRITICAL):
-                - If you get results from semantic_search, provide the answer immediately
-                - Do NOT run multiple searches for simple questions
-                - Do NOT iterate more than 2 times for basic company/target questions
-                - If you see the same search query being repeated, STOP immediately and provide the best answer you have
-                - For "companies targeting X" questions, search once and list all companies found
-                
-                RESPONSE GUIDELINES:
-                - ALWAYS use semantic_search FIRST for any question
-                - Generate comprehensive summaries from the top-K results
-                - Extract and present ALL relevant information clearly
-                - For company questions: List all companies found with their drugs, targets, mechanisms
-                - For drug questions: Provide drug names, companies, targets, mechanisms, approval status
-                - For target questions: List all drugs targeting that target with company information
-                - ALWAYS provide detailed information from search results
-                - Include drug names, mechanisms, development phases, and other relevant details
-                - Format your answer clearly with bullet points or structured information
-                - If internal data is found, provide detailed information from internal sources
-                - If no internal data found, use this EXACT format:
-                  "❓ I don't know - No relevant information found in our internal database or ground truth data.
-                  Would you like me to search public resources for this information?"
-                - Always indicate your data source at the end of your response
-                
-                DATA SOURCE PRIORITY:
-                1. Ground Truth (highest priority - curated business data)
-                2. Internal Database (pipeline-collected data)
-                3. FDA Data (external API but integrated internally)
-                4. Clinical Trials (external API but integrated internally)
-                5. Drugs.com (external API but integrated internally)
-                6. Cross-reference all sources for validation
-                
-                RESPONSE GUIDELINES:
-                - ALWAYS search internal sources FIRST before providing any answer
-                - Use analyze_competitive_landscape for ALL company/target questions
-                - When you get search results, extract ALL relevant information and present it clearly
-                - For company questions: List all companies found with their drugs, targets, mechanisms, and development phases
-                - For drug questions: Provide drug names, companies, targets, mechanisms, and approval status
-                - For target questions: List all drugs targeting that target with company information, mechanisms, and development phases
-                - ALWAYS provide detailed information from search results - don't just list company names
-                - Include drug names, mechanisms, development phases, and other relevant details
-                - Format your answer clearly with bullet points or structured information
-                - Provide comprehensive answers based on search results
-                - If internal data is found, provide detailed information from internal sources
-                - If no internal data found, use this EXACT format:
-                  "❓ I don't know - No relevant information found in our internal database or ground truth data.
-                  Would you like me to search public resources for this information?"
-                - Always indicate your data source at the end of your response
-                
-                DATA SOURCE INDICATORS:
-                - "🏆 Data Source: Ground Truth" (curated business data with tickets/priorities)
-                - "📊 Data Source: Internal Database" (pipeline-collected data)
-                - "🏥 Data Source: FDA" (FDA approved drugs and regulatory data)
-                - "🧪 Data Source: Clinical Trials" (clinical trial data)
-                - "💊 Data Source: Drugs.com" (comprehensive drug profiles and interactions)
-                - "🏆📊🏥🧪💊 Data Source: Internal (Ground Truth + Database + FDA + Clinical Trials + Drugs.com)" (all internal sources)
-                - "🌐 Data Source: Public Information" (external/general knowledge - only when explicitly requested)
-                
-                CRITICAL: For biopharmaceutical questions, ALWAYS search internal sources first!
-                Be efficient - use the right tool and provide complete answers without unnecessary iterations.
-                When you find relevant data, present it in a structured, detailed format with all available information.
-                Don't just list names - include mechanisms, ticket numbers, drug classes, and other relevant details.
-                
-                CRITICAL RESPONSE FORMATTING:
-                - Use the exact format from the examples above
-                - List companies with their drug names and key details in parentheses
-                - Include specific targets, mechanisms, and development phases when available
-                - Use semicolons to separate multiple drugs from the same company
-                - Include clinical trial phases and indications when available
-                - Be comprehensive - include all relevant companies and drugs found
-                - Use natural language flow, not bullet points or structured lists
-                
-                FINAL ANSWER INSTRUCTIONS:
-                - Follow the exact pattern from the examples: "Company: Drug (details); Company: Drug (details)"
-                - Include drug codes/names, targets, mechanisms, and phases in parentheses
-                - Use semicolons to separate different companies
-                - Include clinical trial information and indications when available
-                - Be comprehensive and detailed like the examples
-                
-                CRITICAL: When you see "IMPORTANT: This is your complete answer. Do not summarize or shorten this response. Present it exactly as shown above." in the tool output, you MUST copy the ENTIRE tool output as your final answer, including all emojis, formatting, and details.
-                
-                CONSISTENCY REQUIREMENTS:
-                - ALWAYS provide the same level of detail for similar questions
-                - ALWAYS use analyze_competitive_landscape for company/target questions
-                - ALWAYS include drug names, companies, mechanisms, and development phases when available
-                - NEVER give generic responses like "Companies such as X, Y, Z may be working on..."
-                - ALWAYS provide specific, factual information from the search results
-                - NEVER say "I cannot determine" or "unable to find" - always search first
-                - NEVER summarize or shorten tool output - present it in full detail
-                - The tool output contains the complete answer - use it directly!
-                
-                EXAMPLES OF GOOD RESPONSES:
-                
-                Example 1 - KRAS Inhibitor Question:
-                Question: "Which companies are active in KRAS inhibitor?"
-                Tool: semantic_search
-                Query: "KRAS inhibitor companies"
-                
-                Final Answer: "Companies have KRAS inhibitor: Roche (RG6620 / GDC-7035 targeting KRAS G12D; Divarasib / GDC-6036 / RG6330 Targeting KRAS G12C); Amgen (LUMAKRAS was approved for KRAS G12C‑mutated locally advanced or metastatic NSCLC) and have clinical trials on Advanced Colorectal Cancer; NSCLC; Merck (MK-1084 targting KRAS G12C); Eli Lilly (Olomorasib targeting KRAS G12C; KRAS G12D targeting KRAS G12D; LY4066434 is Pan KRAS)"
-                
-                Example 2 - BCL6 Question:
-                Question: "Who is working on BCL6?"
-                Tool: semantic_search
-                Query: "BCL6 companies drugs"
-                
-                Final Answer: "Arvinas: ARV-393 (oral BCL6 PROTAC degrader, Phase 1, with advanced NHL) Bristol Myers Squibb: BMS-986458 (BCL6 degrader, Phase 1, NHL) Treeline Biosciences: TLN-121 (BCL6 degrader, Phase 1, relapsed or refractory NHL). Treeline reaps $200M A extension, picked three candidates including TLN-121"
-                
-                Example 3 - MTAP Question:
-                Question: "Can you pull who does MTAP?"
-                Tool: semantic_search
-                Query: "MTAP companies drugs"
-                
-                Final Answer: "Bayer (BAY 3713372) – Phase 1/2 mono & combo in advanced NSCLC, GI, biliary tract, and pancreatic cancers, plus other solid tumors. Amgen (AMG 193) – Phase 1 mono & combo studies in MTAP-deleted solid tumors, pancreatic ductal adenocarcinoma (PDAC), GI, and biliary tract cancers. BMS (MRTX1719 / BMS-986504) – Phase 1–3 mono & combo across MTAP-deleted solid tumors; BMS-986504 focuses on first-line metastatic NSCLC. AstraZeneca (AZD3470) – Phase 1 in MTAP-deficient advanced/metastatic solid tumors. Gilead (GS-5319) – Phase 1 in MTAP-deleted advanced solid tumors."
-                
-                CRITICAL: This is a SIMPLE question - use semantic_search ONCE with descriptive query and answer immediately. Do NOT iterate multiple times.
-                
-                Example 2 - Competitive Landscape Question:
-                Question: "What is the competitive landscape for BRAF?"
-                Tool: semantic_search
-                Response: "BRAF Competitive Landscape:
-                
-                🏢 Roche: Mosperafenib - Inhibits oncogenic BRAF V600E
-                🏢 Genentech: Vemurafenib (Zelboraf) - Inhibits BRAF V600
-                🏢 Roche/Genentech: Ribociclib, Palbociclib, Tisagenlecleucel
-                
-                📊 Market Insights:
-                • Competitive market with multiple companies
-                • Diverse mechanisms targeting BRAF mutations
-                
-                🏆📊 Data Source: Internal (Ground Truth + Database)"
-                
-                Example 3 - Drug Comparison Question:
-                Question: "Compare Trastuzumab and Pertuzumab"
-                Tool: compare_drugs
-                Response: "Drug Comparison: Trastuzumab vs Pertuzumab
-                
-                🏢 Companies:
-                  • Trastuzumab: Genentech
-                  • Pertuzumab: Genentech
-                
-                🎯 Targets:
-                  • Trastuzumab: HER2
-                  • Pertuzumab: HER2
-                
-                ⚙️ Mechanisms:
-                  • Trastuzumab: Block HER2 mediated signaling
-                  • Pertuzumab: Block HER2 mediated signaling
-                
-                💊 Drug Classes:
-                  • Trastuzumab: Monoclonal Antibody
-                  • Pertuzumab: Monoclonal Antibody
-                
-                🏆📊 Data Source: Internal (Ground Truth + Database)"
-                
-                Example 4 - No Data Found:
-                Question: "Companies targeting XYZ123"
-                Tool: analyze_competitive_landscape
-                Response: "❓ I don't know - No relevant information found in our internal database or ground truth data.
-                Would you like me to search public resources for this information?"
-                
-                CRITICAL EXAMPLES OF WHAT NOT TO DO:
-                
-                ❌ BAD: "Companies such as Biogen, Pfizer, and Eli Lilly may be working on targets related to HER3."
-                ✅ GOOD: "There are 3 companies that target HER3: Daiichi Sankyo (Patritumab Deruxtecan), Merck (Patritumab Deruxtecan MK-1022), and AstraZeneca (Trastuzumab Deruxtecan)."
-                
-                ❌ BAD: "I cannot determine how many companies are targeting HER3."
-                ✅ GOOD: Use semantic_search tool first, then provide specific answer from search results.
-                
-                ❌ BAD: Generic responses without specific drug names, companies, or mechanisms.
-                ✅ GOOD: Detailed responses with specific information from search results.
-                """
+                system_prompt=SYSTEM_PROMPT,
             )
             
             return agent
@@ -1331,14 +1238,7 @@ Would you like me to search for more specific information in our internal databa
             logger.error(f"Fallback search error: {e}")
             return None
     
-    def _calculate_similarity(self, text1: str, text2: str) -> float:
-        """Calculate similarity between two text strings."""
-        try:
-            from difflib import SequenceMatcher
-            return SequenceMatcher(None, text1.lower(), text2.lower()).ratio()
-        except Exception as e:
-            logger.error(f"Error calculating similarity: {e}")
-            return 0.0
+    # Removed unused _calculate_similarity helper
     
     def _extract_target_from_question(self, question: str) -> Optional[str]:
         """Extract target name from question dynamically."""

@@ -44,6 +44,8 @@ def export_basic(db: Session, out_path: str) -> str:
             # Placeholder export: join Drug + Company; trials summarized per drug
             drugs = db.query(Drug).all()
             for d in drugs:
+                if not (d.generic_name and str(d.generic_name).strip()):
+                    continue
                 company_name = d.company.name if d.company else ""
                 trials = db.query(ClinicalTrial).filter(ClinicalTrial.drug_id == d.id).all()
                 trial_summaries: List[str] = []
@@ -108,6 +110,8 @@ def export_drug_table(db: Session, out_path: str) -> str:
 
             drugs = db.query(Drug).all()
             for d in drugs:
+                if not (d.generic_name and str(d.generic_name).strip()):
+                    continue
                 fda_approval = ""
                 if d.fda_approval_date:
                     # Format YYYY/MM if day is not important

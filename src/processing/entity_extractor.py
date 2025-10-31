@@ -4,8 +4,7 @@ Entity extraction module for processing collected documents and creating structu
 
 import re
 import json
-import csv
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 from datetime import datetime
 from sqlalchemy.orm import Session
 from loguru import logger
@@ -49,7 +48,6 @@ class EntityExtractor:
     def _initialize_extraction_stats(self) -> Dict[str, int]:
         """Initialize extraction statistics."""
         return {
-            "companies_created": 0,
             "drugs_created": 0,
             "clinical_trials_created": 0,
             "targets_created": 0,
@@ -63,10 +61,9 @@ class EntityExtractor:
             self._extract_clinical_trial_entities(doc)
             stats["clinical_trials_created"] += 1
         
-        # Extract entities based on document type
+        # Extract entities based on document type (only for existing seed companies)
         if doc.source_type in ["company_about", "company_pipeline", "company_products", "company_oncology"]:
-            self._extract_company_entities(doc)
-            stats["companies_created"] += 1
+            self._extract_company_entities(doc)  # Only extracts drugs from pipeline docs for seed companies
         elif doc.source_type in ["fda_drug_approval", "fda_comprehensive_approval", "drugs_com_profile"]:
             self._extract_drug_entities(doc)
             stats["drugs_created"] += 1
@@ -81,34 +78,21 @@ class EntityExtractor:
         logger.info(f"Entity extraction completed: {stats}")
     
     def _extract_company_entities(self, doc: Document):
-        """Extract company information from company documents."""
-        content = doc.content.lower()
-        title = doc.title.lower()
-        
-        # Extract company name from title or content
+        """Extract drugs from company pipeline documents for existing seed companies only."""
+        # Find existing company from seed data
         company_name = self._extract_company_name(doc.title, doc.content)
         if not company_name:
             return
             
-        # Check if company already exists
-        existing_company = self.db.query(Company).filter(
+        company = self.db.query(Company).filter(
             Company.name.ilike(f"%{company_name}%")
         ).first()
         
-        if existing_company:
-            company = existing_company
-        else:
-            # Create new company
-            company = Company(
-                name=company_name,
-                website_url=doc.source_url,
-                description=self._extract_company_description(doc.content),
-                created_at=datetime.utcnow()
-            )
-            self.db.add(company)
-            self.db.flush()  # Get the ID
+        if not company:
+            logger.debug(f"Skipping document for unknown company: {company_name}")
+            return
         
-        # Extract drugs from company pipeline documents
+        # Extract drugs from company pipeline documents only
         if doc.source_type == "company_pipeline":
             drugs = self._extract_drugs_from_company_pipeline(doc.content, company.id)
             for drug_info in drugs:
@@ -203,16 +187,6 @@ class EntityExtractor:
                 return company_name
         
         return None
-    
-    def _extract_company_description(self, content: str) -> str:
-        """Extract company description from content."""
-        # Look for description patterns
-        sentences = content.split('.')
-        for sentence in sentences[:5]:  # Check first 5 sentences
-            if len(sentence) > 50 and any(word in sentence.lower() for word in 
-                ["pharmaceutical", "biotechnology", "company", "develops", "research", "therapeutic"]):
-                return sentence.strip()[:500]  # Limit length
-        return ""
     
     def _extract_drugs_from_company_pipeline(self, content: str, company_id: int) -> List[Dict[str, Any]]:
         """Extract drug information from company pipeline content."""
@@ -566,34 +540,26 @@ class EntityExtractor:
         return conditions[:5]  # Limit to 5 conditions
     
     def _find_or_create_company_for_drug(self, drug_info: Dict[str, Any], doc: Document) -> Optional[Company]:
-        """Find or create company for a drug."""
+        """Find existing company for a drug. Only uses companies from seed data - does not create new ones."""
         # Try to extract company name from document
         company_name = self._extract_company_name(doc.title, doc.content)
         if not company_name:
             # Default companies based on drug names
             drug_name = drug_info["generic_name"].lower()
             if "keytruda" in drug_name or "pembrolizumab" in drug_name:
-                company_name = "Merck & Co."
+                company_name = "Merck & Co"  # Must match seed data
             elif "opdivo" in drug_name or "nivolumab" in drug_name:
                 company_name = "Bristol Myers Squibb"
             else:
                 return None
         
-        # Find existing company
+        # Only find existing company from seed data - do not create new ones
         company = self.db.query(Company).filter(
             Company.name.ilike(f"%{company_name}%")
         ).first()
         
         if not company:
-            # Create new company
-            company = Company(
-                name=company_name,
-                website_url=doc.source_url,
-                description="",
-                created_at=datetime.utcnow()
-            )
-            self.db.add(company)
-            self.db.flush()
+            logger.debug(f"Skipping drug {drug_info.get('generic_name')} - company {company_name} not in seed data")
         
         return company
     
@@ -735,78 +701,6 @@ class EntityExtractor:
         
         return "Unknown"
 
-    def _load_companies_from_csv(self) -> List[Dict[str, str]]:
-        """Load companies data from CSV file."""
-        companies = []
-        try:
-            with open('data/companies.csv', 'r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    companies.append(row)
-        except Exception as e:
-            logger.error(f"Error loading companies CSV: {e}")
-        return companies
-
-    def _process_company_oncology_pipeline(self, company_data: Dict[str, str]):
-        """Process a company's oncology pipeline."""
-        company_name = company_data['Company']
-        
-        # Get or create company
-        company = self._get_or_create_company(company_name, company_data['OfficialWebsite'])
-        
-        # Look for documents from this company's oncology pipeline
-        company_docs = self.db.query(Document).filter(
-            Document.source_url.like(f"%{company_name.lower()}%")
-        ).all()
-        
-        # If no specific documents found, create mock data based on known drugs
-        if not company_docs:
-            self._create_known_drugs_for_company(company)
-        else:
-            # Process existing documents
-            for doc in company_docs:
-                self._extract_drugs_from_document(doc, company)
-
-    def _get_or_create_company(self, name: str, website: str) -> Company:
-        """Get existing company or create new one."""
-        company = self.db.query(Company).filter(
-            Company.name.ilike(f"%{name}%")
-        ).first()
-        
-        if not company:
-            company = Company(
-                name=name,
-                website=website,
-                description=f"Oncology-focused pharmaceutical company",
-                created_at=datetime.utcnow()
-            )
-            self.db.add(company)
-            self.db.flush()
-        
-        return company
-
-    def _create_known_drugs_for_company(self, company: Company):
-        """Create known drugs for major companies based on their pipelines."""
-        company_name = company.name.lower()
-        
-        if "merck" in company_name:
-            self._create_merck_drugs(company)
-        elif "bristol" in company_name or "myers" in company_name:
-            self._create_bms_drugs(company)
-        elif "roche" in company_name or "genentech" in company_name:
-            self._create_roche_drugs(company)
-        elif "pfizer" in company_name:
-            self._create_pfizer_drugs(company)
-        elif "novartis" in company_name:
-            self._create_novartis_drugs(company)
-        elif "gilead" in company_name:
-            self._create_gilead_drugs(company)
-        elif "amgen" in company_name:
-            self._create_amgen_drugs(company)
-        elif "regeneron" in company_name:
-            self._create_regeneron_drugs(company)
-        elif "incyte" in company_name:
-            self._create_incyte_drugs(company)
 
     def _create_drug_from_data(self, drug_data: Dict[str, Any], company: Company) -> Drug:
         """Create a drug entity from structured data."""
@@ -872,215 +766,6 @@ class EntityExtractor:
             self.db.flush()
         
         return indication
-
-    def _extract_drugs_from_document(self, doc: Document, company: Company):
-        """Extract drugs from a document."""
-        # This is a placeholder - in practice, you'd extract from the actual document content
-        pass
-
-    def _create_merck_drugs(self, company: Company):
-        """Create Merck & Co. drugs."""
-        merck_drugs = [
-            {
-                "generic_name": "Pembrolizumab",
-                "brand_name": "KEYTRUDA",
-                "drug_class": "Monoclonal Antibody",
-                "mechanism_of_action": "Monoclonal antibody that binds to the PD-1 receptor and blocks its interaction with PD-L1 and PD-L2",
-                "fda_approval_status": True,
-                "fda_approval_date": datetime(2014, 9, 1),
-                "targets": ["PD-1"],
-                "indications": ["Melanoma", "Non-small cell lung cancer", "Head and neck cancer", "Hodgkin lymphoma", "Urothelial cancer", "Gastric cancer", "Cervical cancer", "Hepatocellular carcinoma", "Merkel cell carcinoma", "Renal cell carcinoma", "Endometrial carcinoma", "Triple-negative breast cancer", "Esophageal cancer", "Small cell lung cancer"],
-                "nct_codes": ["NCT03765918", "NCT03867084", "NCT05116189", "NCT03066778", "NCT04191096"]
-            },
-            {
-                "generic_name": "Sotatercept",
-                "brand_name": "SOTATERCEPT",
-                "drug_class": "Therapeutic Protein",
-                "mechanism_of_action": "Activin signaling inhibitor",
-                "fda_approval_status": True,
-                "fda_approval_date": datetime(2023, 3, 1),
-                "targets": ["Activin"],
-                "indications": ["Pulmonary arterial hypertension"],
-                "nct_codes": ["NCT04938830", "NCT05624554", "NCT03976323"]
-            }
-        ]
-        
-        for drug_data in merck_drugs:
-            self._create_drug_from_data(drug_data, company)
-
-    def _create_bms_drugs(self, company: Company):
-        """Create Bristol Myers Squibb drugs."""
-        bms_drugs = [
-            {
-                "generic_name": "Nivolumab",
-                "brand_name": "OPDIVO",
-                "drug_class": "Monoclonal Antibody",
-                "mechanism_of_action": "Anti-PD-1 monoclonal antibody",
-                "fda_approval_status": True,
-                "fda_approval_date": datetime(2014, 12, 1),
-                "targets": ["PD-1"],
-                "indications": ["Melanoma", "Non-small cell lung cancer", "Renal cell carcinoma", "Hodgkin lymphoma", "Head and neck cancer", "Urothelial cancer", "Colorectal cancer", "Hepatocellular carcinoma", "Esophageal cancer", "Gastric cancer", "Malignant pleural mesothelioma"],
-                "nct_codes": ["NCT03097938", "NCT04099277", "NCT04165772", "NCT04380636", "NCT04411402"]
-            },
-            {
-                "generic_name": "Ipilimumab",
-                "brand_name": "YERVOY",
-                "drug_class": "Monoclonal Antibody",
-                "mechanism_of_action": "Anti-CTLA-4 monoclonal antibody",
-                "fda_approval_status": True,
-                "fda_approval_date": datetime(2011, 3, 1),
-                "targets": ["CTLA-4"],
-                "indications": ["Melanoma", "Renal cell carcinoma", "Colorectal cancer", "Hepatocellular carcinoma", "Malignant pleural mesothelioma", "Non-small cell lung cancer"],
-                "nct_codes": ["NCT03097938", "NCT04099277", "NCT04165772", "NCT04380636", "NCT04411402"]
-            }
-        ]
-        
-        for drug_data in bms_drugs:
-            self._create_drug_from_data(drug_data, company)
-
-    def _create_roche_drugs(self, company: Company):
-        """Create Roche/Genentech drugs."""
-        roche_drugs = [
-            {
-                "generic_name": "Trastuzumab",
-                "brand_name": "HERCEPTIN",
-                "drug_class": "Monoclonal Antibody",
-                "mechanism_of_action": "Anti-HER2 monoclonal antibody",
-                "fda_approval_status": True,
-                "fda_approval_date": datetime(1998, 9, 1),
-                "targets": ["HER2"],
-                "indications": ["Breast cancer", "Gastric cancer", "Gastroesophageal junction adenocarcinoma"],
-                "nct_codes": ["NCT04099277", "NCT04165772", "NCT04380636", "NCT04411402"]
-            },
-            {
-                "generic_name": "Atezolizumab",
-                "brand_name": "TECENTRIQ",
-                "drug_class": "Monoclonal Antibody",
-                "mechanism_of_action": "Anti-PD-L1 monoclonal antibody",
-                "fda_approval_status": True,
-                "fda_approval_date": datetime(2016, 5, 1),
-                "targets": ["PD-L1"],
-                "indications": ["Urothelial cancer", "Non-small cell lung cancer", "Small cell lung cancer", "Hepatocellular carcinoma", "Melanoma", "Triple-negative breast cancer"],
-                "nct_codes": ["NCT03097938", "NCT04099277", "NCT04165772", "NCT04380636", "NCT04411402"]
-            }
-        ]
-        
-        for drug_data in roche_drugs:
-            self._create_drug_from_data(drug_data, company)
-
-    def _create_pfizer_drugs(self, company: Company):
-        """Create Pfizer drugs."""
-        pfizer_drugs = [
-            {
-                "generic_name": "Avelumab",
-                "brand_name": "BAVENCIO",
-                "drug_class": "Monoclonal Antibody",
-                "mechanism_of_action": "Anti-PD-L1 monoclonal antibody",
-                "fda_approval_status": True,
-                "fda_approval_date": datetime(2017, 3, 1),
-                "targets": ["PD-L1"],
-                "indications": ["Urothelial cancer", "Merkel cell carcinoma", "Renal cell carcinoma"],
-                "nct_codes": ["NCT03097938", "NCT04099277", "NCT04165772", "NCT04380636", "NCT04411402"]
-            }
-        ]
-        
-        for drug_data in pfizer_drugs:
-            self._create_drug_from_data(drug_data, company)
-
-    def _create_novartis_drugs(self, company: Company):
-        """Create Novartis drugs."""
-        novartis_drugs = [
-            {
-                "generic_name": "Tisagenlecleucel",
-                "brand_name": "KYMRIAH",
-                "drug_class": "CAR-T Cell Therapy",
-                "mechanism_of_action": "CD19-directed genetically modified autologous T cell immunotherapy",
-                "fda_approval_status": True,
-                "fda_approval_date": datetime(2017, 8, 1),
-                "targets": ["CD19"],
-                "indications": ["B-cell acute lymphoblastic leukemia", "Large B-cell lymphoma", "Follicular lymphoma"],
-                "nct_codes": ["NCT03097938", "NCT04099277", "NCT04165772", "NCT04380636", "NCT04411402"]
-            }
-        ]
-        
-        for drug_data in novartis_drugs:
-            self._create_drug_from_data(drug_data, company)
-
-    def _create_gilead_drugs(self, company: Company):
-        """Create Gilead Sciences drugs."""
-        gilead_drugs = [
-            {
-                "generic_name": "Yescarta",
-                "brand_name": "YESCARTA",
-                "drug_class": "CAR-T Cell Therapy",
-                "mechanism_of_action": "CD19-directed genetically modified autologous T cell immunotherapy",
-                "fda_approval_status": True,
-                "fda_approval_date": datetime(2017, 10, 1),
-                "targets": ["CD19"],
-                "indications": ["Large B-cell lymphoma", "Follicular lymphoma", "Mantle cell lymphoma"],
-                "nct_codes": ["NCT03097938", "NCT04099277", "NCT04165772", "NCT04380636", "NCT04411402"]
-            }
-        ]
-        
-        for drug_data in gilead_drugs:
-            self._create_drug_from_data(drug_data, company)
-
-    def _create_amgen_drugs(self, company: Company):
-        """Create Amgen drugs."""
-        amgen_drugs = [
-            {
-                "generic_name": "Blinatumomab",
-                "brand_name": "BLINCYTO",
-                "drug_class": "Bispecific T-cell Engager",
-                "mechanism_of_action": "CD19 x CD3 bispecific T-cell engager",
-                "fda_approval_status": True,
-                "fda_approval_date": datetime(2014, 12, 1),
-                "targets": ["CD19", "CD3"],
-                "indications": ["B-cell acute lymphoblastic leukemia"],
-                "nct_codes": ["NCT03097938", "NCT04099277", "NCT04165772", "NCT04380636", "NCT04411402"]
-            }
-        ]
-        
-        for drug_data in amgen_drugs:
-            self._create_drug_from_data(drug_data, company)
-
-    def _create_regeneron_drugs(self, company: Company):
-        """Create Regeneron drugs."""
-        regeneron_drugs = [
-            {
-                "generic_name": "Dupilumab",
-                "brand_name": "DUPIXENT",
-                "drug_class": "Monoclonal Antibody",
-                "mechanism_of_action": "Anti-IL-4Rα monoclonal antibody",
-                "fda_approval_status": True,
-                "fda_approval_date": datetime(2017, 3, 1),
-                "targets": ["IL-4Rα"],
-                "indications": ["Atopic dermatitis", "Asthma", "Chronic rhinosinusitis with nasal polyps", "Eosinophilic esophagitis"],
-                "nct_codes": ["NCT03097938", "NCT04099277", "NCT04165772", "NCT04380636", "NCT04411402"]
-            }
-        ]
-        
-        for drug_data in regeneron_drugs:
-            self._create_drug_from_data(drug_data, company)
-
-    def _create_incyte_drugs(self, company: Company):
-        """Create Incyte drugs."""
-        incyte_drugs = [
-            {
-                "generic_name": "Ruxolitinib",
-                "brand_name": "JAKAFI",
-                "drug_class": "Small Molecule",
-                "mechanism_of_action": "JAK1/JAK2 inhibitor",
-                "fda_approval_status": True,
-                "fda_approval_date": datetime(2011, 11, 1),
-                "targets": ["JAK1", "JAK2"],
-                "indications": ["Myelofibrosis", "Polycythemia vera", "Acute graft-versus-host disease"],
-                "nct_codes": ["NCT03097938", "NCT04099277", "NCT04165772", "NCT04380636", "NCT04411402"]
-            }
-        ]
-        
-        for drug_data in incyte_drugs:
-            self._create_drug_from_data(drug_data, company)
 
 
 def run_entity_extraction():

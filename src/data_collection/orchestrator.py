@@ -18,11 +18,11 @@ class DataCollectionOrchestrator:
     """Orchestrates data collection from multiple sources."""
     
     def __init__(self, run_maintenance: bool = True):
+        # Register only collectors with working collect_data implementations
         self.collectors = {
-            "clinical_trials": ClinicalTrialsCollector(),
-            "fda": FDACollector(),
             "company_websites": CompanyWebsiteCollector(),
-            "drugs": DrugsCollector()
+            "drugs": DrugsCollector(),
+            "clinical_trials": ClinicalTrialsCollector(),
         }
         self.run_maintenance = run_maintenance
     
@@ -86,11 +86,8 @@ class DataCollectionOrchestrator:
         """Get collection parameters for a specific source."""
         # Define parameter mappings for each source
         param_mappings = {
-            "clinical_trials": {'pageSize': 10},
-            "fda": ['drug_approvals', 'adverse_events'],
             "company_websites": {'max_companies': 2},
             "drugs": ['metformin', 'lisinopril', 'atorvastatin'],
-            "drug_interactions": [('warfarin', 'aspirin'), ('metformin', 'insulin')]
         }
         
         if source in param_mappings:

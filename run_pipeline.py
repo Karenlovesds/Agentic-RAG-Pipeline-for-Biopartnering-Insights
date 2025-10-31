@@ -144,7 +144,7 @@ Examples:
             db.close()
             
     elif args.command == 'export':
-        from src.processing.csv_export import export_drug_table, export_basic
+        from src.processing.csv_export import export_drug_table
         from src.models.database import get_db
         
         db = get_db()
@@ -152,13 +152,9 @@ Examples:
             # Ensure outputs directory exists
             Path("outputs").mkdir(exist_ok=True)
             
-            # Export drug table
+            # Export drug table (canonical export - replaces basic_export)
             export_drug_table(db, 'outputs/biopharma_drugs.csv')
             print("✅ Drug table exported: outputs/biopharma_drugs.csv")
-            
-            # Export basic data
-            export_basic(db, 'outputs/basic_export.csv')
-            print("✅ Basic data exported: outputs/basic_export.csv")
             
         finally:
             db.close()

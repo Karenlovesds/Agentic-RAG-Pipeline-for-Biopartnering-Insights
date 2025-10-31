@@ -25,17 +25,9 @@ def load_ground_truth_data() -> pd.DataFrame:
         # Clean and prepare data using configuration
         df = df.rename(columns=AnalysisConfig.COLUMN_MAPPING)
         
-        # Validate required columns
-        is_valid, missing_columns = AnalysisConfig.validate_ground_truth_data(df)
-        if not is_valid:
-            st.error(f"Missing required columns in ground truth data: {missing_columns}")
-            return pd.DataFrame()
-        
         # Clean FDA approval dates
         df['FDA Approval'] = df['FDA Approval'].astype(str).apply(clean_fda_date)
         
-        # Convert tickets to string
-        df['Tickets'] = df['Tickets'].astype(str)
         
         return df
     except FileNotFoundError:

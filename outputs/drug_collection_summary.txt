@@ -6,7 +6,7 @@ FDA Documents: 2395
 Clinical Trial Documents: 10558
 Company Documents: 217
 Clinical Trials (Extracted): 1138
-Total Documents: 14417
+Total Documents: 14453
 Success: True
 
 Pipeline Drugs by Company:

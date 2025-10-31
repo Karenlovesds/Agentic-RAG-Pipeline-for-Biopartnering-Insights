@@ -4,12 +4,10 @@ import hashlib
 import json
 import requests
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from pathlib import Path
 from loguru import logger
 from sqlalchemy.orm import Session
-from ..models.database import get_db
-from ..models.entities import Document
 from ..data_collection.orchestrator import DataCollectionOrchestrator
 
 

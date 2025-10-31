@@ -22,7 +22,7 @@ from src.models.database import get_db
 from src.models.entities import Drug, Document, ClinicalTrial, Company
 from src.data_collection.orchestrator import DataCollectionOrchestrator
 from src.processing.pipeline import run_processing
-from src.processing.csv_export import export_drug_table, export_basic
+from src.processing.csv_export import export_drug_table
 from sqlalchemy.orm import Session
 
 
@@ -209,15 +209,10 @@ class CompletePipeline:
             # Run exports
             db = get_db()
             try:
-                # Export drug table
+                # Export drug table (canonical export - replaces basic_export)
                 drug_file = "outputs/biopharma_drugs.csv"
                 export_drug_table(db, drug_file)
                 logger.info(f"✅ Drug table exported: {drug_file}")
-                
-                # Export basic data
-                basic_file = "outputs/basic_export.csv"
-                export_basic(db, basic_file)
-                logger.info(f"✅ Basic data exported: {basic_file}")
                 
                 # Generate drug collection summary
                 summary_file = "outputs/drug_collection_summary.txt"
@@ -227,7 +222,7 @@ class CompletePipeline:
                 # Update state
                 results = {
                     "drug_table": drug_file,
-                    "basic_export": basic_file,
+                    "basic_export": drug_file,  # basic_export replaced by biopharma_drugs.csv
                     "drug_summary": summary_file,
                     "timestamp": datetime.now().isoformat()
                 }

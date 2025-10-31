@@ -22,7 +22,7 @@ from config.config import settings, get_target_companies
 from src.rag.react_rag_agent import ReactRAGAgent
 from src.evaluation.feedback_manager import FeedbackManager, create_feedback_tables
 from src.rag.cache_manager import RAGCacheManager
-from src.processing.csv_export import export_basic, export_drug_table
+from src.processing.csv_export import export_drug_table
 from src.processing.pipeline import run_processing
 from src.evaluation.react_agent_eval import evaluate_react_agent
 from src.evaluation.feedback_analyzer import (
@@ -36,7 +36,6 @@ from src.evaluation.feedback_analyzer import (
 )
 from src.analysis.market_analysis_dashboard import main_market_analysis_dashboard
 from src.analysis.overlap_dashboard import main_overlap_dashboard
-# from src.analysis.ticket_analysis_dashboard import main_ticket_analysis_dashboard  # Commented out - ticket analysis removed
 from src.rag.ground_truth_loader import GroundTruthLoader
 
 
@@ -386,8 +385,6 @@ def main():
         main_market_analysis_dashboard()
     elif page == "Overlap Analysis":
         main_overlap_dashboard()
-    # elif page == "Business Analysis":  # Commented out - ticket analysis removed
-    #     show_business_analysis()
     elif page == "Results":
         show_results()
     elif page == "Evaluation":
@@ -772,9 +769,10 @@ def show_rag_agent():
         # Generate response using React Framework agent
         with st.chat_message("assistant"):
             try:
-                # Use React Framework agent
-                react_agent = ReactRAGAgent(settings)
-                result = react_agent.generate_response(prompt)
+                # Session-scoped React agent with persistent memory
+                if "react_agent" not in st.session_state:
+                    st.session_state.react_agent = ReactRAGAgent(settings)
+                result = st.session_state.react_agent.generate_response(prompt)
                 answer = result["answer"]
                 
                 # Display response
@@ -823,9 +821,10 @@ def show_rag_agent():
                     # Generate response using React Framework agent
                     with st.chat_message("assistant"):
                         try:
-                            # Use React Framework agent
-                            react_agent = ReactRAGAgent(settings)
-                            result = react_agent.generate_response(question)
+                            # Reuse session-scoped agent to preserve memory
+                            if "react_agent" not in st.session_state:
+                                st.session_state.react_agent = ReactRAGAgent(settings)
+                            result = st.session_state.react_agent.generate_response(question)
                             answer = result["answer"]
                             
                             # Display response
@@ -847,6 +846,8 @@ def show_rag_agent():
                     st.rerun()
         
         st.markdown("---")
+
+    
     
     # Database Feedback Analytics
     
@@ -1228,16 +1229,16 @@ def show_results():
     with col1:
         if st.button("📊 Export Drug Table", type="primary"):
             try:
-                export_drug_table("outputs/drug_table_export.csv")
-                st.success("✅ Drug table exported successfully!")
+                export_drug_table(get_db(), "outputs/biopharma_drugs.csv")
+                st.success("✅ Drug table exported to outputs/biopharma_drugs.csv!")
             except Exception as e:
                 st.error(f"Export error: {e}")
     
     with col2:
-        if st.button("📋 Export Basic Data"):
+        if st.button("📋 Export Basic Data (same as Drug Table)"):
             try:
-                export_basic("outputs/basic_export.csv")
-                st.success("✅ Basic data exported successfully!")
+                export_drug_table(get_db(), "outputs/biopharma_drugs.csv")
+                st.success("✅ Basic export replaced by outputs/biopharma_drugs.csv!")
             except Exception as e:
                 st.error(f"Export error: {e}")
 
@@ -1262,12 +1263,12 @@ def show_settings():
         st.write(f"- Request Delay: {settings.request_delay}s")
         st.write(f"- Refresh Schedule: {settings.refresh_schedule}")
         st.write("\n**Exports**")
-        if st.button("Export standardized CSV"):
+        if st.button("Export standardized CSV (biopharma_drugs.csv)"):
             try:
                 db = get_db()
-                out_path = export_basic(db, "outputs/biopartnering_data.csv")
+                out_path = export_drug_table(db, "outputs/biopharma_drugs.csv")
                 with open(out_path, "rb") as f:
-                    st.download_button("Download CSV", f, file_name="biopartnering_data.csv", mime="text/csv")
+                    st.download_button("Download CSV", f, file_name="biopharma_drugs.csv", mime="text/csv")
             except Exception as e:
                 st.error(f"Export failed: {e}")
         if st.button("Export drug table (requested schema)"):
@@ -1352,29 +1353,47 @@ def show_evaluation():
         st.info("🤖 Using Agentic RAG Self-Evaluation")
     
     with col2:
-        num_questions = st.slider("Number of Test Questions", 1, 10, 5)
+        num_questions = st.slider("Number of Evaluation Questions", 1, 3, 3)
         evaluation_type = st.selectbox("Evaluation Type", ["Predefined Questions", "Custom Questions"])
     
-    # Predefined test questions
+    # Predefined evaluation questions (official set - 3 examples)
     predefined_questions = [
-        "What cancer drugs does Merck have in their pipeline?",
-        "What is pembrolizumab used for?",
-        "What clinical trials are Bristol Myers Squibb running?",
-        "What are the latest FDA approvals for cancer drugs?",
-        "What immunotherapy drugs are available?",
-        "What targeted therapies exist for lung cancer?",
-        "What are the side effects of checkpoint inhibitors?",
-        "What combination therapies are being tested?",
-        "What biomarkers are used for cancer treatment?",
-        "What are the latest advances in CAR-T therapy?"
+        "Which companies are active in KRAS inhibitor?",
+        "Who is working on BCL6?",
+        "Can you pull who does MTAP?",
     ]
     
     # Get test questions
     if evaluation_type == "Predefined Questions":
         test_questions = predefined_questions[:num_questions]
-        st.subheader("🧪 Test Questions")
+        st.subheader("🧪 Evaluation Questions")
         for i, q in enumerate(test_questions, 1):
             st.write(f"{i}. {q}")
+        # Reference vs Our Answers (preview)
+        with st.expander("Show reference (correct) answers and preview our answers"):
+            st.markdown("**Reference (correct) answers**")
+            refs = {
+                "Which companies are active in KRAS inhibitor?": "Roche: Divarasib (GDC‑6036 / RG6330, KRAS G12C); RG6620 (GDC‑7035, KRAS G12D). Amgen: LUMAKRAS (sotorasib, KRAS G12C) – approved in KRAS G12C‑mutated NSCLC; trials include NSCLC and advanced CRC. Merck: MK‑1084 (KRAS G12C). Eli Lilly: Olomorasib (KRAS G12C); KRAS G12D program; LY4066434 (pan‑KRAS).",
+                "Who is working on BCL6?": "Arvinas: ARV‑393 (oral BCL6 PROTAC degrader, Phase 1, advanced NHL). Bristol Myers Squibb: BMS‑986458 (BCL6 degrader, Phase 1, NHL). Treeline Biosciences: TLN‑121 (BCL6 degrader, Phase 1, relapsed/refractory NHL).",
+                "Can you pull who does MTAP?": "Bayer: BAY 3713372 – Phase 1/2 mono & combo in advanced NSCLC, GI, biliary tract, pancreatic, and other solid tumors. Amgen: AMG 193 – Phase 1 mono & combo in MTAP‑deleted solid tumors incl. PDAC, GI, biliary. BMS: MRTX1719 / BMS‑986504 – Phase 1–3 mono & combo across MTAP‑deleted tumors; BMS‑986504 in 1L metastatic NSCLC. AstraZeneca: AZD3470 – Phase 1 in MTAP‑deficient tumors. Gilead: GS‑5319 – Phase 1 in MTAP‑deleted tumors."
+            }
+            for i, q in enumerate(test_questions, 1):
+                st.write(f"{i}. {q}")
+                st.caption(refs.get(q, "Provide specific, sourced details."))
+            st.markdown("**Our answers (preview)**")
+            if st.button("Generate preview answers", key="gen_preview_answers"):
+                if "react_agent" not in st.session_state:
+                    st.session_state.react_agent = ReactRAGAgent(settings)
+                previews = []
+                for q in test_questions:
+                    try:
+                        resp = st.session_state.react_agent.generate_response(q)
+                        previews.append((q, resp.get("answer", str(resp))[:1200]))
+                    except Exception as e:
+                        previews.append((q, f"Error: {e}"))
+                for i, (q, ans) in enumerate(previews, 1):
+                    st.write(f"{i}. {q}")
+                    st.code(ans)
     else:
         st.subheader("Custom Questions")
         test_questions = []
@@ -1529,7 +1548,10 @@ def show_evaluation():
                 # Show raw scores
                 st.write("\n**Raw Scores:**")
                 for metric, score in scores.items():
-                    st.write(f"- {metric}: {score:.4f}")
+                    if isinstance(score, (int, float)):
+                        st.write(f"- {metric}: {score:.4f}")
+                    else:
+                        st.write(f"- {metric}: {score}")
             
             # Recommendations
             st.subheader("💡 Recommendations")
@@ -1575,48 +1597,6 @@ def show_evaluation():
     """)
 
 
-# def show_business_analysis():
-#     """Show password-protected business analysis dashboard."""
-#     
-#     # Password protection
-#     if "business_analysis_authenticated" not in st.session_state:
-#         st.session_state.business_analysis_authenticated = False
-#     
-#     if not st.session_state.business_analysis_authenticated:
-#         st.header("🔒 Business Analysis Dashboard")
-#         st.markdown("This dashboard contains sensitive business intelligence and requires authentication.")
-#         
-#         # Password input
-#         password = st.text_input("Enter password:", type="password", help="Contact administrator for access")
-#         
-#         col1, col2 = st.columns(2)
-#         with col1:
-#             if st.button("🔓 Access Dashboard"):
-#                 if password == "biopartner2024":  # Change this to your desired password
-#                     st.session_state.business_analysis_authenticated = True
-#                     st.rerun()
-#                 else:
-#                     st.error("❌ Incorrect password. Please try again.")
-#         
-#         with col2:
-#             if st.button("🔒 Lock Dashboard"):
-#                 st.session_state.business_analysis_authenticated = False
-#                 st.rerun()
-#         
-#         # Security notice
-#         st.info("🔐 **Security Notice:** This dashboard contains confidential business data. Access is restricted to authorized personnel only.")
-#         
-#         return
-#     
-#     # Show logout option
-#     if st.button("🔒 Logout", help="Lock the dashboard"):
-#         st.session_state.business_analysis_authenticated = False
-#         st.rerun()
-#     
-#     # Show the actual dashboard
-#     main_ticket_analysis_dashboard()
-
-
 def show_ground_truth():
     """Show Ground Truth data page."""
     st.header("🏆 Ground Truth Data")
@@ -1638,7 +1618,7 @@ def show_ground_truth():
             st.metric("Total Records", len(gt_loader._data))
         
         with col2:
-            unique_companies = gt_loader._data['Partner'].nunique() if 'Partner' in gt_loader._data.columns else 0
+            unique_companies = gt_loader._data['Company'].nunique() if 'Company' in gt_loader._data.columns else 0
             st.metric("Unique Companies", unique_companies)
         
         with col3:
@@ -1656,8 +1636,8 @@ def show_ground_truth():
         filter_col1, filter_col2, filter_col3, filter_col4, filter_col5, filter_col6 = st.columns(6)
         
         with filter_col1:
-            company_options = ["All"] + sorted([str(x) for x in gt_loader._data['Partner'].unique() if pd.notna(x)])
-            company_filter = st.selectbox("Partner", company_options, key="company_filter")
+            company_options = ["All"] + sorted([str(x) for x in gt_loader._data['Company'].unique() if pd.notna(x)])
+            company_filter = st.selectbox("Company", company_options, key="company_filter")
         
         with filter_col2:
             drug_options = ["All"] + sorted([str(x) for x in gt_loader._data['Generic name'].unique() if pd.notna(x)])
@@ -1683,7 +1663,7 @@ def show_ground_truth():
         filtered_data = gt_loader._data.copy()
         
         if company_filter != "All":
-            filtered_data = filtered_data[filtered_data['Partner'] == company_filter]
+            filtered_data = filtered_data[filtered_data['Company'] == company_filter]
         
         if drug_name_filter != "All":
             filtered_data = filtered_data[filtered_data['Generic name'] == drug_name_filter]

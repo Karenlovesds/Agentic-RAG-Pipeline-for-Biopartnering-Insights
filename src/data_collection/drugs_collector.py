@@ -1,75 +1,65 @@
-"""Enhanced drugs collector for drug profiles, FDA approval history, and clinical trial data."""
+"""Drugs collector for drug profiles and interactions from Drugs.com."""
 
-import asyncio
-import requests
-import json
 import re
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from datetime import datetime
 from loguru import logger
 from crawl4ai import AsyncWebCrawler
 from bs4 import BeautifulSoup
-from .base_collector import BaseCollector, CollectedData
+from .utils import BaseCollector, CollectedData
 from config.config import settings
 
 
 class DrugsCollector(BaseCollector):
-    """Enhanced collector for comprehensive drug information including FDA approval history."""
+    """Collector for drug profiles and interactions from Drugs.com.
+    
+    This collector fetches basic drug information from Drugs.com including:
+    - Drug descriptions and mechanisms of action
+    - Indications and uses
+    - Drug interactions and safety information
+    
+    Note: FDA and clinical trials data is collected by separate dedicated collectors.
+    """
     
     def __init__(self):
         super().__init__("drugs", settings.drugs_com_base_url)
-        self.fda_base_url = "https://api.fda.gov"
-        self.clinical_trials_url = "https://clinicaltrials.gov/api/v2/studies"
     
     async def collect_data(self, drug_names: List[str] = None) -> List[CollectedData]:
-        """Collect comprehensive drug information including FDA approval history."""
+        """Collect drug profile and interaction data from Drugs.com.
+        
+        Args:
+            drug_names: List of drug names to collect. If None, uses default known drugs list.
+        
+        Returns:
+            List of CollectedData objects with drug profiles and interactions.
+        """
         collected_data = []
         
-        # Combine database drugs with known drugs for comprehensive coverage
+        # Use known drugs list if no specific drugs provided
         if drug_names is None:
             drug_names = self._get_comprehensive_drug_list()
-        else:
-            # Add known drugs to the database drugs for more comprehensive coverage
-            known_drugs = self._get_comprehensive_drug_list()
-            # Combine and deduplicate (case-insensitive)
-            all_drugs = drug_names + known_drugs
-            seen = set()
-            drug_names = []
-            for drug in all_drugs:
-                drug_lower = drug.lower()
-                if drug_lower not in seen:
-                    seen.add(drug_lower)
-                    drug_names.append(drug)
         
-        # # Limit to first 20 drugs for comprehensive collection
-        # drug_names = drug_names[:20]
+        logger.info(f"Starting drug data collection for {len(drug_names)} drugs from Drugs.com")
         
-        logger.info(f"Starting comprehensive drug data collection for {len(drug_names)} drugs (database + known drugs)")
-        
-        # Collect data from multiple sources
+        # Collect data for each drug
         for drug_name in drug_names:
             try:
-                # 1. Drugs.com profile
-                drugs_com_data = await self._collect_drugs_com_profile(drug_name)
-                if drugs_com_data:
-                    collected_data.extend(drugs_com_data)
+                # Collect drug profile (description, MOA, indications)
+                profile_data = await self._collect_drugs_com_profile(drug_name)
+                if profile_data:
+                    collected_data.extend(profile_data)
                 
-                # 2. FDA approval history
-                fda_data = await self._collect_fda_approval_history(drug_name)
-                if fda_data:
-                    collected_data.extend(fda_data)
-                
-                # 3. Clinical trials data
-                trials_data = await self._collect_clinical_trials(drug_name)
-                if trials_data:
-                    collected_data.extend(trials_data)
-                
-                # 4. Drug interactions
+                # Collect drug interactions
                 interactions_data = await self._collect_drug_interactions(drug_name)
                 if interactions_data:
                     collected_data.extend(interactions_data)
                 
-                logger.info(f"✅ Completed comprehensive collection for {drug_name}")
+                # Collect FDA approval history (new)
+                fda_history_data = await self._collect_fda_approval_history(drug_name)
+                if fda_history_data:
+                    collected_data.extend(fda_history_data)
+                
+                logger.info(f"✅ Completed collection for {drug_name}")
                 
             except Exception as e:
                 logger.error(f"Error collecting data for {drug_name}: {e}")
@@ -108,9 +98,11 @@ class DrugsCollector(BaseCollector):
         # Convert to lowercase for consistency
         return [drug.lower() for drug in known_drugs]
     
-    
     async def _collect_drugs_com_profile(self, drug_name: str) -> List[CollectedData]:
-        """Collect basic drug profile from Drugs.com."""
+        """Collect basic drug profile from Drugs.com.
+        
+        Extracts: description, mechanism of action, indications, dosage, and side effects.
+        """
         collected_data = []
         
         try:
@@ -136,79 +128,11 @@ class DrugsCollector(BaseCollector):
         
         return collected_data
     
-    async def _collect_fda_approval_history(self, drug_name: str) -> List[CollectedData]:
-        """Collect comprehensive FDA approval history for a drug."""
-        collected_data = []
-        
-        try:
-            # Search FDA drug labels for the drug
-            fda_url = f"{self.fda_base_url}/drug/label.json"
-            params = {
-                "search": f"openfda.brand_name:\"{drug_name}\" OR openfda.generic_name:\"{drug_name}\"",
-                "limit": 10,
-                "sort": "effective_time:desc"
-            }
-            
-            response = self._make_request(fda_url, params)
-            if response and response.status_code == 200:
-                data = response.json()
-                results = data.get("results", [])
-                
-                for i, result in enumerate(results):
-                    approval_data = self._extract_fda_approval_data(result, drug_name)
-                    if approval_data:
-                        collected_data.append(CollectedData(
-                            content=approval_data,
-                            title=f"FDA Approval History: {drug_name.title()}",
-                            source_url=f"{self.fda_base_url}/drug/label.json?id={result.get('id', '')}",
-                            source_type="fda_drug_approval"
-                        ))
-                
-                logger.info(f"✅ Collected FDA approval history for {drug_name} ({len(results)} entries)")
-            
-        except Exception as e:
-            logger.error(f"Error collecting FDA approval history for {drug_name}: {e}")
-        
-        return collected_data
-    
-    async def _collect_clinical_trials(self, drug_name: str) -> List[CollectedData]:
-        """Collect clinical trials data for a drug."""
-        collected_data = []
-        
-        try:
-            # Search ClinicalTrials.gov for trials involving the drug
-            trials_url = self.clinical_trials_url
-            params = {
-                "format": "json",
-                "query.cond": drug_name,
-                "pageSize": 20
-            }
-            
-            response = self._make_request(trials_url, params)
-            if response and response.status_code == 200:
-                data = response.json()
-                studies = data.get("studies", [])
-                
-                for study in studies:
-                    trial_data = self._extract_clinical_trial_data(study, drug_name)
-                    if trial_data:
-                        nct_id = study.get("protocolSection", {}).get("identificationModule", {}).get("nctId", "")
-                        collected_data.append(CollectedData(
-                            content=trial_data,
-                            title=f"Clinical Trial: {drug_name.title()} - {nct_id}",
-                            source_url=f"https://clinicaltrials.gov/study/{nct_id}",
-                            source_type="clinical_trial"
-                        ))
-                
-                logger.info(f"✅ Collected clinical trials for {drug_name} ({len(studies)} trials)")
-            
-        except Exception as e:
-            logger.error(f"Error collecting clinical trials for {drug_name}: {e}")
-        
-        return collected_data
-    
     async def _collect_drug_interactions(self, drug_name: str) -> List[CollectedData]:
-        """Collect drug interaction data."""
+        """Collect drug interaction data from Drugs.com.
+        
+        Extracts: major interactions, moderate interactions, food/drug interactions, and alcohol interactions.
+        """
         collected_data = []
         
         try:
@@ -317,115 +241,8 @@ class DrugsCollector(BaseCollector):
         
         return "\n".join(content_parts)
     
-    def _extract_fda_approval_data(self, fda_result: Dict[str, Any], drug_name: str) -> str:
-        """Extract FDA approval data from API response."""
-        content_parts = [
-            f"FDA Approval Data: {drug_name.title()}",
-            f"Source: FDA Drug Label API",
-            f"Collection Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            ""
-        ]
-        
-        # Extract key FDA information
-        openfda = fda_result.get("openfda", {})
-        if openfda:
-            content_parts.extend([
-                "FDA Information:",
-                f"Brand Name: {', '.join(openfda.get('brand_name', ['N/A']))}",
-                f"Generic Name: {', '.join(openfda.get('generic_name', ['N/A']))}",
-                f"Manufacturer: {', '.join(openfda.get('manufacturer_name', ['N/A']))}",
-                f"Product Type: {', '.join(openfda.get('product_type', ['N/A']))}",
-                f"Route: {', '.join(openfda.get('route', ['N/A']))}",
-                ""
-            ])
-        
-        # Extract indications and usage
-        indications = fda_result.get("indications_and_usage", [])
-        if indications:
-            content_parts.extend([
-                "Indications and Usage:",
-                *[f"- {indication}" for indication in indications[:5]],  # Limit to first 5
-                ""
-            ])
-        
-        # Extract warnings
-        warnings = fda_result.get("warnings_and_cautions", [])
-        if warnings:
-            content_parts.extend([
-                "Warnings and Cautions:",
-                *[f"- {warning}" for warning in warnings[:3]],  # Limit to first 3
-                ""
-            ])
-        
-        # Extract adverse reactions
-        adverse_reactions = fda_result.get("adverse_reactions", [])
-        if adverse_reactions:
-            content_parts.extend([
-                "Adverse Reactions:",
-                *[f"- {reaction}" for reaction in adverse_reactions[:5]],  # Limit to first 5
-                ""
-            ])
-        
-        # Extract effective time (approval date)
-        effective_time = fda_result.get("effective_time", "")
-        if effective_time:
-            content_parts.extend([
-                f"Effective Time (Approval Date): {effective_time}",
-                ""
-            ])
-        
-        return "\n".join(content_parts)
-    
-    def _extract_clinical_trial_data(self, study: Dict[str, Any], drug_name: str) -> str:
-        """Extract clinical trial data from API response."""
-        content_parts = [
-            f"Clinical Trial Data: {drug_name.title()}",
-            f"Source: ClinicalTrials.gov",
-            f"Collection Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            ""
-        ]
-        
-        protocol_section = study.get("protocolSection", {})
-        identification = protocol_section.get("identificationModule", {})
-        status = protocol_section.get("statusModule", {})
-        conditions = protocol_section.get("conditionsModule", {})
-        eligibility = protocol_section.get("eligibilityModule", {})
-        
-        # Basic trial information
-        content_parts.extend([
-            "Trial Information:",
-            f"NCT ID: {identification.get('nctId', 'N/A')}",
-            f"Title: {identification.get('briefTitle', 'N/A')}",
-            f"Official Title: {identification.get('officialTitle', 'N/A')}",
-            f"Status: {status.get('overallStatus', 'N/A')}",
-            f"Phase: {', '.join(status.get('phases', ['N/A']))}",
-            f"Start Date: {status.get('startDateStruct', {}).get('date', 'N/A')}",
-            f"Completion Date: {status.get('completionDateStruct', {}).get('date', 'N/A')}",
-            ""
-        ])
-        
-        # Conditions
-        conditions_list = conditions.get("conditions", [])
-        if conditions_list:
-            content_parts.extend([
-                "Conditions:",
-                *[f"- {condition}" for condition in conditions_list[:5]],
-                ""
-            ])
-        
-        # Eligibility criteria
-        eligibility_criteria = eligibility.get("eligibilityCriteria", "")
-        if eligibility_criteria:
-            content_parts.extend([
-                "Eligibility Criteria:",
-                f"{eligibility_criteria[:500]}...",  # Truncate for brevity
-                ""
-            ])
-        
-        return "\n".join(content_parts)
-    
     def _extract_drug_interactions_content(self, html_content: str, drug_name: str) -> str:
-        """Extract drug interactions content from HTML."""
+        """Extract drug interactions content from HTML using BeautifulSoup parsing."""
         content_parts = [
             f"Drug Interactions: {drug_name.title()}",
             f"Source: Drugs.com",
@@ -487,6 +304,226 @@ class DrugsCollector(BaseCollector):
             ])
         
         return "\n".join(content_parts)
+    
+    async def _collect_fda_approval_history(self, drug_name: str) -> List[CollectedData]:
+        """Collect FDA approval history from Drugs.com.
+        
+        Searches for drug name + "FDA approval history" and extracts:
+        - FDA Approval status and date
+        - Brand name, Generic name, Dosage form, Company
+        - Development timeline with dates and article titles (containing Indication Approved)
+        
+        Args:
+            drug_name: Drug name to search for
+            
+        Returns:
+            List of CollectedData objects with FDA approval history information
+        """
+        collected_data = []
+        
+        try:
+            async with AsyncWebCrawler(verbose=False) as crawler:
+                # Search for FDA approval history on Drugs.com
+                # Try different URL patterns
+                search_urls = [
+                    f"https://www.drugs.com/history/{drug_name.lower().replace(' ', '-')}.html",
+                    f"https://www.drugs.com/search.php?searchterm={drug_name}+FDA+approval+history",
+                ]
+                
+                for search_url in search_urls:
+                    try:
+                        result = await crawler.arun(url=search_url)
+                        
+                        if result.success and result.cleaned_html:
+                            # Extract FDA approval history content
+                            content = self._extract_fda_approval_history_content(
+                                result.cleaned_html, 
+                                drug_name,
+                                result.markdown or ""
+                            )
+                            
+                            if content and len(content) > 200:  # Only if we got meaningful content
+                                collected_data.append(CollectedData(
+                                    content=content,
+                                    title=f"FDA Approval History: {drug_name.title()}",
+                                    source_url=search_url,
+                                    source_type="drugs_com_fda_history"
+                                ))
+                                logger.info(f"✅ Collected FDA approval history for {drug_name}")
+                                break  # Success, no need to try other URLs
+                                
+                    except Exception as e:
+                        logger.debug(f"Error accessing {search_url}: {e}")
+                        continue
+                
+        except Exception as e:
+            logger.error(f"Error collecting FDA approval history for {drug_name}: {e}")
+        
+        return collected_data
+    
+    def _extract_fda_approval_history_content(self, html_content: str, drug_name: str, markdown_content: str = "") -> str:
+        """Extract FDA approval history content from Drugs.com HTML.
+        
+        Extracts:
+        - FDA Approval status and date (e.g., "FDA Approved: Yes (First approved September 4, 2014)")
+        - Brand name, Generic name, Dosage form, Company
+        - Development timeline with dates and article titles
+        - Parses article titles to extract indication approved information
+        """
+        content_parts = [
+            f"FDA Approval History: {drug_name.title()}",
+            f"Source: Drugs.com",
+            f"Collection Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            "",
+        ]
+        
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # Extract basic drug information (Brand, Generic, Dosage, Company)
+        basic_info = {}
+        
+        # Look for patterns like "Brand name: Keytruda" or "Generic name: pembrolizumab"
+        text_content = soup.get_text()
+        
+        # Extract Brand name
+        brand_match = re.search(r'(?:brand\s+name|trade\s+name)[:\s]+([A-Z][a-zA-Z\s-]+)', text_content, re.I)
+        if brand_match:
+            basic_info['brand_name'] = brand_match.group(1).strip()
+        
+        # Extract Generic name
+        generic_match = re.search(r'generic\s+name[:\s]+([a-zA-Z\s-]+)', text_content, re.I)
+        if generic_match:
+            basic_info['generic_name'] = generic_match.group(1).strip()
+        
+        # Extract Dosage form
+        dosage_match = re.search(r'(?:dosage\s+form|formulation)[:\s]+([^,\n.]+)', text_content, re.I)
+        if dosage_match:
+            basic_info['dosage_form'] = dosage_match.group(1).strip()
+        
+        # Extract Company/Manufacturer
+        company_patterns = [
+            r'company[:\s]+([A-Z][a-zA-Z\s&.,-]+)',
+            r'manufacturer[:\s]+([A-Z][a-zA-Z\s&.,-]+)',
+            r'by\s+([A-Z][a-zA-Z\s&.,-]+)\s+(?:Inc|LLC|Corp|Pharmaceuticals?)',
+        ]
+        for pattern in company_patterns:
+            company_match = re.search(pattern, text_content, re.I)
+            if company_match:
+                basic_info['company'] = company_match.group(1).strip()
+                break
+        
+        # Extract FDA Approval status and date
+        fda_approved_match = re.search(
+            r'FDA\s+Approved[:\s]*(?:Yes|No)[\s(]*(?:first\s+approved|approved)?\s*([A-Za-z]+\s+\d{1,2},\s+\d{4})?',
+            text_content,
+            re.I
+        )
+        if fda_approved_match:
+            approval_text = fda_approved_match.group(0)
+            basic_info['fda_approval'] = approval_text.strip()
+            
+            # Extract date separately
+            date_match = re.search(r'([A-Za-z]+\s+\d{1,2},\s+\d{4})', approval_text)
+            if date_match:
+                basic_info['fda_approval_date'] = date_match.group(1)
+        
+        # Add basic info to content
+        if basic_info:
+            content_parts.append("=== Basic Drug Information ===")
+            if 'brand_name' in basic_info:
+                content_parts.append(f"Brand name: {basic_info['brand_name']}")
+            if 'generic_name' in basic_info:
+                content_parts.append(f"Generic name: {basic_info['generic_name']}")
+            if 'dosage_form' in basic_info:
+                content_parts.append(f"Dosage form: {basic_info['dosage_form']}")
+            if 'company' in basic_info:
+                content_parts.append(f"Company: {basic_info['company']}")
+            if 'fda_approval' in basic_info:
+                content_parts.append(f"FDA Approved: {basic_info['fda_approval']}")
+            content_parts.append("")
+        
+        # Extract Development Timeline
+        # Look for tables or sections with "Development timeline" or "Timeline"
+        timeline_section = None
+        
+        # Try to find timeline section in HTML
+        timeline_headers = soup.find_all(['h2', 'h3', 'h4', 'div'], string=re.compile(r'development\s+timeline|timeline|approval\s+history', re.I))
+        
+        if timeline_headers:
+            for header in timeline_headers:
+                # Find the next table or list after the header
+                current = header.find_next(['table', 'ul', 'div'])
+                if current:
+                    timeline_section = current
+                    break
+        
+        # Also check for tables with Date and Article columns
+        tables = soup.find_all('table')
+        for table in tables:
+            headers = [th.get_text().strip().lower() for th in table.find_all(['th', 'td'])[:2]]
+            if 'date' in headers and 'article' in headers:
+                timeline_section = table
+                break
+        
+        if timeline_section:
+            content_parts.append("=== Development Timeline ===")
+            
+            # Extract rows from table
+            rows = timeline_section.find_all('tr')
+            for row in rows:
+                cells = row.find_all(['td', 'th'])
+                if len(cells) >= 2:
+                    date_text = cells[0].get_text().strip()
+                    article_text = cells[1].get_text().strip()
+                    
+                    if date_text and article_text and date_text.lower() != 'date':
+                        content_parts.append(f"Date: {date_text}")
+                        content_parts.append(f"Article: {article_text}")
+                        
+                        # Extract indication from article title if it contains "Indication Approved" or approval info
+                        indication_match = re.search(
+                            r'(?:approval|approved)\s+(?:for|of)\s+([^,\.]+)',
+                            article_text,
+                            re.I
+                        )
+                        if indication_match:
+                            indication = indication_match.group(1).strip()
+                            content_parts.append(f"  → Indication Approved: {indication}")
+                        
+                        content_parts.append("")
+        
+        # Fallback: Extract from markdown or plain text if table parsing didn't work
+        if not timeline_section and markdown_content:
+            # Look for timeline patterns in markdown
+            timeline_pattern = r'(?:development\s+timeline|timeline)\s+for\s+[\w\s]+\s+(.*?)(?:\n\n|\Z)'
+            timeline_match = re.search(timeline_pattern, markdown_content, re.I | re.DOTALL)
+            if timeline_match:
+                timeline_text = timeline_match.group(1)
+                # Try to extract date-article pairs
+                date_article_pattern = r'(\w+\s+\d{1,2},\s+\d{4})\s+(.*?)(?=\n\w+\s+\d{1,2},|\Z)'
+                matches = re.findall(date_article_pattern, timeline_text)
+                if matches:
+                    content_parts.append("=== Development Timeline (from text) ===")
+                    for date, article in matches:
+                        content_parts.append(f"Date: {date.strip()}")
+                        content_parts.append(f"Article: {article.strip()}")
+                        # Extract indication
+                        indication_match = re.search(
+                            r'(?:approval|approved)\s+(?:for|of)\s+([^,\.]+)',
+                            article,
+                            re.I
+                        )
+                        if indication_match:
+                            indication = indication_match.group(1).strip()
+                            content_parts.append(f"  → Indication Approved: {indication}")
+                        content_parts.append("")
+        
+        # If we found any meaningful content
+        if len(content_parts) > 4:  # More than just header
+            return "\n".join(content_parts)
+        
+        # Return None if no meaningful content found
+        return None
     
     def parse_data(self, raw_data: Any) -> List[CollectedData]:
         """Parse raw data into CollectedData objects."""

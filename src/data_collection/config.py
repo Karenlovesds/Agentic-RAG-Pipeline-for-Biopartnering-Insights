@@ -17,13 +17,6 @@ class APIConfig:
         "drug_shortage": os.getenv("FDA_DRUG_SHORTAGE_ENDPOINT", "/drug/shortage.json")
     }
     
-    # PubMed API Configuration
-    PUBMED_BASE_URL = os.getenv("PUBMED_BASE_URL", "https://eutils.ncbi.nlm.nih.gov/entrez/eutils")
-    PUBMED_ENDPOINTS = {
-        "search": os.getenv("PUBMED_SEARCH_ENDPOINT", "/esearch.fcgi"),
-        "fetch": os.getenv("PUBMED_FETCH_ENDPOINT", "/efetch.fcgi"),
-        "summary": os.getenv("PUBMED_SUMMARY_ENDPOINT", "/esummary.fcgi")
-    }
     
     # Clinical Trials API Configuration
     CLINICAL_TRIALS_BASE_URL = os.getenv("CLINICAL_TRIALS_BASE_URL", "https://clinicaltrials.gov/api/v2")
@@ -52,7 +45,7 @@ class APIConfig:
     
     # API Rate Limits
     FDA_RATE_LIMIT = int(os.getenv("FDA_RATE_LIMIT", "1000"))  # requests per hour
-    PUBMED_RATE_LIMIT = int(os.getenv("PUBMED_RATE_LIMIT", "3"))  # requests per second
+    # PubMed removed
     CLINICAL_TRIALS_RATE_LIMIT = int(os.getenv("CLINICAL_TRIALS_RATE_LIMIT", "100"))  # requests per hour
     
     # Request Timeouts
@@ -104,11 +97,7 @@ class APIConfig:
         return cls.FDA_BASE_URL + cls.FDA_ENDPOINTS[endpoint_name]
     
     @classmethod
-    def get_pubmed_endpoint(cls, endpoint_name: str) -> str:
-        """Get PubMed endpoint URL."""
-        if endpoint_name not in cls.PUBMED_ENDPOINTS:
-            raise ValueError(f"Unknown PubMed endpoint: {endpoint_name}")
-        return cls.PUBMED_BASE_URL + cls.PUBMED_ENDPOINTS[endpoint_name]
+    # PubMed removed
     
     @classmethod
     def get_clinical_trials_endpoint(cls, endpoint_name: str) -> str:
@@ -145,7 +134,7 @@ class APIConfig:
         """Validate configuration and return status."""
         validation_results = {
             "fda_api": cls._validate_fda_config(),
-            "pubmed_api": cls._validate_pubmed_config(),
+            # PubMed removed
             "clinical_trials_api": cls._validate_clinical_trials_config(),
             "sec_api": cls._validate_sec_config(),
             "database": cls._validate_database_config(),
@@ -165,14 +154,7 @@ class APIConfig:
         }
     
     @classmethod
-    def _validate_pubmed_config(cls) -> Dict[str, Any]:
-        """Validate PubMed API configuration."""
-        return {
-            "base_url": cls.PUBMED_BASE_URL,
-            "endpoints": list(cls.PUBMED_ENDPOINTS.keys()),
-            "rate_limit": cls.PUBMED_RATE_LIMIT,
-            "valid": bool(cls.PUBMED_BASE_URL)
-        }
+    # PubMed removed
     
     @classmethod
     def _validate_clinical_trials_config(cls) -> Dict[str, Any]:

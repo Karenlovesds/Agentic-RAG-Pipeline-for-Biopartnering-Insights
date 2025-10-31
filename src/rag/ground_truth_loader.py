@@ -28,7 +28,11 @@ class GroundTruthLoader:
     def _load_data(self):
         """Load ground truth data from Excel file."""
         try:
-            self._data = pd.read_excel(self.ground_truth_path)
+            usecols = [
+                'Generic name', 'Brand name', 'Company', 'Target', 'Mechanism',
+                'Drug Class', 'Indication Approved', 'Current Clinical Trials', 'FDA Approval'
+            ]
+            self._data = pd.read_excel(self.ground_truth_path, usecols=usecols)
             logger.info(f"Loaded ground truth data: {len(self._data)} records")
         except Exception as e:
             logger.error(f"Failed to load ground truth data: {e}")
@@ -77,17 +81,17 @@ class GroundTruthLoader:
                 score += 50
                 match_fields.append('drug_class')
             
-            # Check partner/company
-            if pd.notna(row['Partner']) and query_lower in str(row['Partner']).lower():
+            # Check company
+            if pd.notna(row['Company']) and query_lower in str(row['Company']).lower():
                 score += 40
-                match_fields.append('partner')
+                match_fields.append('company')
             
             if score > 0:
                 results.append({
                     'source': 'ground_truth',
                     'score': score,
                     'match_fields': match_fields,
-                    'partner': row['Partner'],
+                    'company': row['Company'],
                     # 'tickets': row['Tickets'],  # Commented out - Tickets column not needed
                     'generic_name': row['Generic name'],
                     'brand_name': row['Brand name'],
@@ -113,8 +117,8 @@ class GroundTruthLoader:
         query_lower = query.lower()
         results = []
         
-        # Group by partner to get company-level insights
-        company_data = self._data.groupby('Partner').agg({
+        # Group by company to get company-level insights
+        company_data = self._data.groupby('Company').agg({
             # 'Tickets': 'sum',  # Commented out - Tickets column not needed
             'Generic name': 'count',
             'FDA Approval': lambda x: (x.notna()).sum(),
@@ -122,22 +126,20 @@ class GroundTruthLoader:
             'Drug Class': lambda x: x.nunique()
         }).reset_index()
         
-        company_data.columns = ['partner', 'drug_count', 'fda_approved_count', 'unique_targets', 'unique_drug_classes']
+        company_data.columns = ['company', 'drug_count', 'fda_approved_count', 'unique_targets', 'unique_drug_classes']
         
         for _, row in company_data.iterrows():
-            if query_lower in str(row['partner']).lower():
+            if query_lower in str(row['company']).lower():
                 # Get company's drug portfolio
-                company_drugs = self._data[self._data['Partner'] == row['partner']]
+                company_drugs = self._data[self._data['Company'] == row['company']]
                 
                 results.append({
                     'source': 'ground_truth',
-                    'partner': row['partner'],
-                    # 'total_tickets': row['total_tickets'],  # Commented out - Tickets column not needed
+                    'company': row['company'],
                     'drug_count': row['drug_count'],
                     'fda_approved_count': row['fda_approved_count'],
                     'unique_targets': row['unique_targets'],
                     'unique_drug_classes': row['unique_drug_classes'],
-                    # 'business_priority': self._calculate_business_priority(row['total_tickets']),  # Commented out - Tickets column not needed
                     'drug_portfolio': company_drugs[['Generic name', 'Brand name', 'FDA Approval', 'Target', 'Drug Class']].to_dict('records'),
                     'data_quality': 'validated'
                 })
@@ -157,7 +159,7 @@ class GroundTruthLoader:
         # Group by target to get target-level insights
         target_data = self._data.groupby('Target').agg({
             'Generic name': 'count',
-            'Partner': 'nunique',
+            'Company': 'nunique',
             'FDA Approval': lambda x: (x.notna()).sum(),
             # 'Tickets': 'sum'  # Commented out - Tickets column not needed
         }).reset_index()
@@ -177,7 +179,7 @@ class GroundTruthLoader:
                     'fda_approved_count': row['fda_approved_count'],
                     # 'total_tickets': row['total_tickets'],  # Commented out - Tickets column not needed
                     # 'business_priority': self._calculate_business_priority(row['total_tickets']),  # Commented out - Tickets column not needed
-                    'targeting_drugs': target_drugs[['Generic name', 'Brand name', 'Partner', 'FDA Approval', 'Mechanism']].to_dict('records'),
+                    'targeting_drugs': target_drugs[['Generic name', 'Brand name', 'Company', 'FDA Approval', 'Mechanism']].to_dict('records'),
                     'data_quality': 'validated'
                 })
         
@@ -190,7 +192,7 @@ class GroundTruthLoader:
         if self._data.empty:
             return None
         
-        company_data = self._data[self._data['Partner'].str.contains(company_name, case=False, na=False)]
+        company_data = self._data[self._data['Company'].str.contains(company_name, case=False, na=False)]
         
         if company_data.empty:
             return None
@@ -205,21 +207,6 @@ class GroundTruthLoader:
             'drug_portfolio': company_data[['Generic name', 'Brand name', 'FDA Approval', 'Target', 'Drug Class']].to_dict('records'),
             'data_quality': 'validated'
         }
-    
-    # def _calculate_business_priority(self, tickets: int) -> str:
-    #     """Calculate business priority based on ticket count."""
-    #     # Define priority thresholds
-    #     priority_thresholds = [
-    #         (50, "High Priority"),
-    #         (20, "Medium Priority"), 
-    #         (5, "Low Priority")
-    #     ]
-    #     
-    #     for threshold, priority in priority_thresholds:
-    #         if tickets >= threshold:
-    #             return priority
-    #     
-    #     return "Monitoring"
     
     def validate_pipeline_data(self, pipeline_drugs: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Validate pipeline data against ground truth."""

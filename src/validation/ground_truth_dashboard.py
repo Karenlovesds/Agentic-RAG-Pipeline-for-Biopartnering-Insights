@@ -18,7 +18,6 @@ def load_ground_truth_data() -> pd.DataFrame:
         
         # Fix data type issues for Streamlit display
         gt_df['FDA Approval'] = gt_df['FDA Approval'].astype(str)
-        gt_df['Tickets'] = gt_df['Tickets'].astype(str)
         
         # Clean up FDA approval date format
         def clean_fda_date(date_str):
@@ -52,7 +51,7 @@ def display_ground_truth_table():
     
     with col1:
         # Company filter
-        companies = ['All'] + sorted(gt_df['Partner'].dropna().unique().tolist())
+        companies = ['All'] + sorted(gt_df['Company'].dropna().unique().tolist())
         selected_company = st.selectbox("Filter by Company", companies, key="gt_company_filter")
         
     with col2:
@@ -87,7 +86,7 @@ def display_ground_truth_table():
     filtered_df = gt_df.copy()
     
     if selected_company != 'All':
-        filtered_df = filtered_df[filtered_df['Partner'] == selected_company]
+        filtered_df = filtered_df[filtered_df['Company'] == selected_company]
         
     if selected_drug_class != 'All':
         filtered_df = filtered_df[filtered_df['Drug Class'] == selected_drug_class]
@@ -133,7 +132,7 @@ def display_ground_truth_table():
     if len(filtered_df) > 0:
         # Select columns to display
         display_columns = [
-            'Partner', 'Generic name', 'Brand name', 'FDA Approval', 
+            'Company', 'Generic name', 'Brand name', 'FDA Approval', 
             'Drug Class', 'Target', 'Mechanism', 'Indication Approved', 
             'Current Clinical Trials'
         ]
@@ -144,7 +143,7 @@ def display_ground_truth_table():
         
         # Rename columns for better display
         column_mapping = {
-            'Partner': 'Company',
+            'Company': 'Company',
             'Generic name': 'Generic Name',
             'Brand name': 'Brand Name',
             'FDA Approval': 'FDA Approval',
@@ -187,7 +186,7 @@ def display_ground_truth_analytics():
         with col1:
             st.metric("Total Drugs", len(gt_df))
         with col2:
-            st.metric("Total Companies", gt_df['Partner'].nunique())
+            st.metric("Total Companies", gt_df['Company'].nunique())
         with col3:
             st.metric("FDA Approved", len(gt_df[gt_df['FDA Approval'].notna()]))
         with col4:
@@ -209,7 +208,7 @@ def display_ground_truth_analytics():
     
     with tab2:
         st.write("**Company Distribution**")
-        company_counts = gt_df['Partner'].value_counts()
+        company_counts = gt_df['Company'].value_counts()
         st.bar_chart(company_counts)
         
         st.write("**Company Drug Counts**")
@@ -249,7 +248,7 @@ def display_ground_truth_analytics():
         # Show drugs with most trials
         gt_df_with_trials = gt_df.copy()
         gt_df_with_trials['Trial Count'] = trial_counts
-        top_trial_drugs = gt_df_with_trials.nlargest(10, 'Trial Count')[['Partner', 'Generic name', 'Trial Count']]
+        top_trial_drugs = gt_df_with_trials.nlargest(10, 'Trial Count')[['Company', 'Generic name', 'Trial Count']]
         st.dataframe(top_trial_drugs, use_container_width=True)
 
 

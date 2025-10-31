@@ -13,11 +13,7 @@ FDA_DRUG_NDC_ENDPOINT=/drug/ndc.json
 FDA_ORANGE_BOOK_ENDPOINT=/drug/ndc.json
 FDA_DRUG_SHORTAGE_ENDPOINT=/drug/shortage.json
 
-# PubMed API Configuration
-PUBMED_BASE_URL=https://eutils.ncbi.nlm.nih.gov/entrez/eutils
-PUBMED_SEARCH_ENDPOINT=/esearch.fcgi
-PUBMED_FETCH_ENDPOINT=/efetch.fcgi
-PUBMED_SUMMARY_ENDPOINT=/esummary.fcgi
+# PubMed API Configuration (removed)
 
 # Clinical Trials API Configuration
 CLINICAL_TRIALS_BASE_URL=https://clinicaltrials.gov/api/v2
@@ -51,8 +47,7 @@ CHROMA_PERSIST_DIRECTORY=./chroma_db
 # FDA API Rate Limits (requests per hour)
 FDA_RATE_LIMIT=1000
 
-# PubMed API Rate Limits (requests per second)
-PUBMED_RATE_LIMIT=3
+# PubMed API Rate Limits (removed)
 
 # Clinical Trials API Rate Limits (requests per hour)
 CLINICAL_TRIALS_RATE_LIMIT=100

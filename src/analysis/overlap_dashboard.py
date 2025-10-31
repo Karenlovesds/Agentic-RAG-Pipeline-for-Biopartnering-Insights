@@ -176,8 +176,8 @@ def display_quality_benchmarks(df: pd.DataFrame):
         st.metric("Avg Trials/Company", f"{benchmarks['Average Trials per Company']:.1f}")
     
     with col3:
-        st.metric("Companies with Targets", f"{benchmarks['Companies with Targets']}/{benchmarks['Total Companies']}")
-        st.metric("Avg Targets/Company", f"{benchmarks['Average Targets per Company']:.1f}")
+        st.metric("Companies with Targets", f"{benchmarks.get('Companies with Targets', 0)}/{benchmarks['Total Companies']}")
+        st.metric("Avg Targets/Company", "N/A")
 
 
 def display_recommendations(df: pd.DataFrame):

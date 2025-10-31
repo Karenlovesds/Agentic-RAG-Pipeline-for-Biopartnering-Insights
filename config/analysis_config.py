@@ -25,15 +25,14 @@ class AnalysisConfig:
         'Mechanism': 'Mechanism',
         'Indication Approved': 'Indication Approved',
         'Current Clinical Trials': 'Current Clinical Trials',
-        'Partner': 'Company',
-        'Tickets': 'Tickets'
+        'Partner': 'Company'
     }
     
     # Required columns for analysis
     REQUIRED_COLUMNS = [
         'Generic Name', 'Brand Name', 'FDA Approval', 'Drug Class', 
         'Target', 'Mechanism', 'Indication Approved', 'Current Clinical Trials',
-        'Company', 'Tickets'
+        'Company'
     ]
     
     # Competition level thresholds (configurable)
@@ -46,38 +45,17 @@ class AnalysisConfig:
     
     # Priority scoring weights (configurable)
     PRIORITY_WEIGHTS = {
-        'ticket_volume': 0.4,        # 40% weight on ticket volume
-        'drug_portfolio': 0.3,       # 30% weight on drug portfolio
-        'fda_approvals': 0.2,        # 20% weight on FDA approvals
-        'target_diversity': 0.1      # 10% weight on target diversity
+        'drug_portfolio': 0.4,       # 40% weight on drug portfolio
+        'fda_approvals': 0.3,        # 30% weight on FDA approvals
+        'target_diversity': 0.2,     # 20% weight on target diversity
+        'clinical_trials': 0.1       # 10% weight on clinical trials
     }
     
-    # Time allocation configuration
-    TIME_ALLOCATION = {
-        'total_hours': 60,           # Total hours for allocation
-        'base_hours_tickets': 40,    # Base hours based on ticket volume
-        'adjustment_hours_priority': 20  # Adjustment hours based on priority
-    }
-    
-    # Efficiency thresholds (configurable)
-    EFFICIENCY_THRESHOLDS = {
-        'high_demand_low_portfolio': 20,  # 20+ tickets per drug
-        'medium_demand_low_portfolio': 10, # 10+ tickets per drug
-        'balanced': 5,                     # 5+ tickets per drug
-        'high_portfolio_low_demand': 5     # <5 tickets per drug
-    }
-    
-    # Quantile thresholds for priority categorization
+    # Priority scoring thresholds (configurable)
     PRIORITY_QUANTILES = {
         'high_priority': 0.7,        # Top 30% by priority score
         'medium_priority': 0.4,      # Middle 30% by priority score
         'low_priority': 0.4          # Bottom 40% by priority score
-    }
-    
-    # Quantile thresholds for efficiency analysis
-    EFFICIENCY_QUANTILES = {
-        'high_efficiency': 0.8,      # Top 20% by tickets per drug
-        'underutilized': 0.2         # Bottom 20% by tickets per drug
     }
     
     # Market saturation thresholds
@@ -135,26 +113,7 @@ class AnalysisConfig:
         else:
             return "Single Drug (1 drug)"
     
-    @classmethod
-    def get_efficiency_category(cls, tickets_per_drug: float) -> str:
-        """
-        Get efficiency category based on tickets per drug ratio.
-        
-        Args:
-            tickets_per_drug: Ratio of tickets to drugs
-            
-        Returns:
-            str: Efficiency category
-        """
-        if tickets_per_drug > cls.EFFICIENCY_THRESHOLDS['high_demand_low_portfolio']:
-            return "High Demand, Low Portfolio"
-        elif tickets_per_drug > cls.EFFICIENCY_THRESHOLDS['medium_demand_low_portfolio']:
-            return "Medium Demand, Low Portfolio"
-        elif tickets_per_drug > cls.EFFICIENCY_THRESHOLDS['balanced']:
-            return "Balanced"
-        else:
-            return "High Portfolio, Low Demand"
-    
+    # Removed get_efficiency_category - was based on ticket analysis
     @classmethod
     def get_saturation_status(cls, saturation_rate: float) -> tuple[str, str]:
         """
