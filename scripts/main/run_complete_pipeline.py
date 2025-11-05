@@ -20,7 +20,9 @@ sys.path.append('.')
 
 from src.models.database import get_db
 from src.models.entities import Drug, Document, ClinicalTrial, Company
-from src.data_collection.orchestrator import DataCollectionOrchestrator
+from src.data_collection.clinical_trials_collector import ClinicalTrialsCollector
+from src.data_collection.company_website_collector import CompanyWebsiteCollector
+from src.data_collection.drugs_collector import DrugsCollector
 from src.processing.pipeline import run_processing
 from src.processing.csv_export import export_drug_table
 from sqlalchemy.orm import Session
@@ -115,8 +117,6 @@ class CompletePipeline:
     
     def __init__(self):
         self.state_manager = PipelineStateManager()
-        self.orchestrator = DataCollectionOrchestrator()
-    
     async def run_data_collection(self) -> Dict[str, int]:
         """Run data collection with change detection."""
         logger.info("=== DATA COLLECTION PHASE ===")
@@ -127,9 +127,27 @@ class CompletePipeline:
             return {"skipped": True}
         
         try:
-            # Run data collection
-            sources = ["clinical_trials", "fda", "company_websites", "drugs"]
-            results = await self.orchestrator.run_full_collection(sources)
+            results = {}
+            
+            # Clinical Trials
+            logger.info("📊 Collecting from ClinicalTrials.gov...")
+            ct_collector = ClinicalTrialsCollector()
+            ct_data = await ct_collector.collect_data()
+            results['clinical_trials'] = sum(1 for d in ct_data if ct_collector._save_document(d))
+            
+            # Company Websites
+            logger.info("🌐 Collecting from company websites...")
+            cw_collector = CompanyWebsiteCollector()
+            cw_data = await cw_collector.collect_data()  # Uses default max_companies=5
+            results['company_websites'] = sum(1 for d in cw_data if cw_collector._save_document(d))
+            
+            # Drugs
+            logger.info("💊 Collecting from Drugs.com...")
+            drugs_collector = DrugsCollector()
+            drugs_data = await drugs_collector.collect_data()  # Uses comprehensive list
+            results['drugs'] = sum(1 for d in drugs_data if drugs_collector._save_document(d))
+            
+            # FDA collector is validation-only and doesn't collect documents, so skip it
             
             # Update state
             self.state_manager.update_step_state("data_collection", True, results)

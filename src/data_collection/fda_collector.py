@@ -308,8 +308,15 @@ class EnhancedFDACollector(BaseCollector):
             logger.error(f"Error making async request to {url}: {e}")
             return None
     
-    # Removed collect_data: was referencing non-existent bulk collection methods.
-    # This collector now focuses on validation and signal extraction only.
+    async def collect_data(self, query_params: Optional[Dict[str, Any]] = None) -> List[CollectedData]:
+        """Collect data from FDA source.
+        
+        Note: This collector primarily focuses on validation. For bulk data collection,
+        use the validation methods directly. This method returns empty list as
+        the collector is used for validation rather than document collection.
+        """
+        logger.info("FDA collector is primarily for validation, not document collection")
+        return []
     
     def _parse_approval_date(self, effective_time: str) -> Optional[str]:
         """Parse FDA effective time to get approval date."""

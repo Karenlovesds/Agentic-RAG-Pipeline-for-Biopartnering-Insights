@@ -152,16 +152,37 @@ class ProductionRunner:
                 
                 if self.notification_manager and success:
                     # Get update results
-                    from src.data_collection.orchestrator import DataCollectionOrchestrator
-                    orchestrator = DataCollectionOrchestrator()
-                    results = {}
-                    for source in ['clinical_trials', 'drugs', 'fda', 'company_websites']:
+                    async def collect_from_sources():
+                        results = {}
+                        from src.data_collection.clinical_trials_collector import ClinicalTrialsCollector
+                        from src.data_collection.company_website_collector import CompanyWebsiteCollector
+                        from src.data_collection.drugs_collector import DrugsCollector
+                        
                         try:
-                            result = orchestrator.run_full_collection([source])
-                            results[source] = result.get(source, 0)
+                            ct_collector = ClinicalTrialsCollector()
+                            ct_data = await ct_collector.collect_data()
+                            results['clinical_trials'] = sum(1 for d in ct_data if ct_collector._save_document(d))
                         except:
-                            results[source] = 0
+                            results['clinical_trials'] = 0
+                        
+                        try:
+                            cw_collector = CompanyWebsiteCollector()
+                            cw_data = await cw_collector.collect_data()
+                            results['company_websites'] = sum(1 for d in cw_data if cw_collector._save_document(d))
+                        except:
+                            results['company_websites'] = 0
+                        
+                        try:
+                            drugs_collector = DrugsCollector()
+                            drugs_data = await drugs_collector.collect_data()
+                            results['drugs'] = sum(1 for d in drugs_data if drugs_collector._save_document(d))
+                        except:
+                            results['drugs'] = 0
+                        
+                        return results
                     
+                    import asyncio
+                    results = asyncio.run(collect_from_sources())
                     self.notification_manager.send_change_notification(changes, results)
                 
                 return success

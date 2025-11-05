@@ -11,13 +11,13 @@ Core functionality:
 - Comprehensive listing: Explicitly lists ALL companies/drugs/targets (no "among others")
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
 from loguru import logger
 import sys
 import re
 from pathlib import Path
 from datetime import datetime
-
+import os
 # Add project root to path
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
@@ -27,6 +27,136 @@ from llama_index.llms.ollama import Ollama
 from llama_index.core.memory import ChatMemoryBuffer
 
 from src.rag.vector_db_manager import VectorDBManager
+
+# Target normalization and synonym mapping
+TARGET_SYNONYMS = {
+    # PD-1 variants
+    "PD-1": ["PD1", "PD 1", "CD279", "programmed death 1"],
+    "PD1": ["PD-1", "PD 1", "CD279", "programmed death 1"],
+    "PD 1": ["PD-1", "PD1", "CD279", "programmed death 1"],
+    "CD279": ["PD-1", "PD1", "PD 1", "programmed death 1"],
+    
+    # PD-L1 variants
+    "PD-L1": ["PDL1", "PD L1", "CD274", "B7-H1", "programmed death ligand 1"],
+    "PDL1": ["PD-L1", "PD L1", "CD274", "B7-H1", "programmed death ligand 1"],
+    "PD L1": ["PD-L1", "PDL1", "CD274", "B7-H1", "programmed death ligand 1"],
+    "CD274": ["PD-L1", "PDL1", "PD L1", "B7-H1", "programmed death ligand 1"],
+    "B7-H1": ["PD-L1", "PDL1", "PD L1", "CD274", "programmed death ligand 1"],
+    
+    # HER2 variants
+    "HER2": ["HER-2", "ERBB2", "HER 2", "Neu", "NEU"],
+    "HER-2": ["HER2", "ERBB2", "HER 2", "Neu", "NEU"],
+    "HER 2": ["HER2", "HER-2", "ERBB2", "Neu", "NEU"],
+    "ERBB2": ["HER2", "HER-2", "HER 2", "Neu", "NEU"],
+    "Neu": ["HER2", "HER-2", "ERBB2", "HER 2"],
+    
+    # CTLA-4 variants
+    "CTLA-4": ["CTLA4", "CTLA 4", "CD152"],
+    "CTLA4": ["CTLA-4", "CTLA 4", "CD152"],
+    "CTLA 4": ["CTLA-4", "CTLA4", "CD152"],
+    "CD152": ["CTLA-4", "CTLA4", "CTLA 4"],
+    
+    # EGFR variants
+    "EGFR": ["HER1", "ERBB1"],
+    "HER1": ["EGFR", "ERBB1"],
+    "ERBB1": ["EGFR", "HER1"],
+    
+    # VEGFR variants
+    "VEGFR": ["VEGFR1", "VEGFR2", "VEGFR3", "FLT1", "KDR", "FLT4"],
+    "VEGFR1": ["VEGFR", "FLT1"],
+    "VEGFR2": ["VEGFR", "KDR"],
+    "VEGFR3": ["VEGFR", "FLT4"],
+    
+    # CD20 variants
+    "CD20": ["CD 20", "MS4A1"],
+    "CD 20": ["CD20", "MS4A1"],
+    
+    # CD19 variants
+    "CD19": ["CD 19"],
+    "CD 19": ["CD19"],
+    
+    # KRAS variants
+    "KRAS": ["K-RAS", "K RAS"],
+    "K-RAS": ["KRAS", "K RAS"],
+    "K RAS": ["KRAS", "K-RAS"],
+    
+    # TROP2 variants
+    "TROP2": ["TROP-2", "TROP 2", "TACSTD2"],
+    "TROP-2": ["TROP2", "TROP 2", "TACSTD2"],
+    "TROP 2": ["TROP2", "TROP-2", "TACSTD2"],
+    "TACSTD2": ["TROP2", "TROP-2", "TROP 2"],
+    
+    # BCL6 variants
+    "BCL6": ["BCL-6", "BCL 6"],
+    "BCL-6": ["BCL6", "BCL 6"],
+    "BCL 6": ["BCL6", "BCL-6"],
+    
+    # MTAP variants
+    "MTAP": ["MT-AP", "MT AP"],
+    "MT-AP": ["MTAP", "MT AP"],
+}
+
+def normalize_target_name(target: str) -> str:
+    """Normalize target name to canonical form."""
+    if not target:
+        return ""
+    
+    target = target.strip().upper()
+    
+    # Remove common variations
+    target = target.replace(" ", "-")  # "PD 1" -> "PD-1"
+    target = target.replace("_", "-")  # "PD_1" -> "PD-1"
+    
+    # Check if we have a synonym mapping
+    for canonical, variants in TARGET_SYNONYMS.items():
+        if target == canonical.upper() or target in [v.upper() for v in variants]:
+            return canonical.upper()
+    
+    return target
+
+def expand_target_query(target: str) -> Set[str]:
+    """Expand target query with synonyms."""
+    if not target:
+        return set()
+    
+    target_normalized = normalize_target_name(target)
+    expanded = {target_normalized}
+    
+    # Add synonyms
+    if target_normalized in TARGET_SYNONYMS:
+        expanded.update([s.upper() for s in TARGET_SYNONYMS[target_normalized]])
+    
+    # Also check if any variant maps to this target
+    for canonical, variants in TARGET_SYNONYMS.items():
+        if target_normalized in [v.upper() for v in variants]:
+            expanded.add(canonical.upper())
+            expanded.update([s.upper() for s in TARGET_SYNONYMS[canonical]])
+    
+    return expanded
+
+def normalize_company_name(company: str) -> str:
+    """Normalize company name for deduplication."""
+    if not company:
+        return ""
+    
+    company = company.strip()
+    # Remove common suffixes
+    company = re.sub(r'\s+(Inc|LLC|Ltd|Corp|Corporation|Pharmaceuticals?|Pharma|Co\.?)\s*$', '', company, flags=re.IGNORECASE)
+    # Normalize separators
+    company = company.replace("&", "and").replace("/", " ").replace(",", "")
+    # Normalize whitespace
+    company = " ".join(company.split())
+    return company.lower()
+
+def normalize_drug_name(drug: str) -> str:
+    """Normalize drug name for deduplication."""
+    if not drug:
+        return ""
+    
+    drug = drug.strip().lower()
+    # Remove punctuation variations
+    drug = re.sub(r'[-\s]+', '-', drug)
+    return drug
 
 # Configuration constants
 DEFAULT_TOP_K = 30
@@ -129,23 +259,18 @@ Would you like me to search public resources for this information?"
 class ReactRAGAgent:
     """React Framework RAG Agent for reliable biopharmaceutical insights."""
     
-    def __init__(self, config=None, ollama_model: str = "llama3.1"):
-        """Initialize the React RAG agent.
-        
-        Args:
-            config: Optional configuration dict (for backward compatibility)
-            ollama_model: Ollama model name (e.g., "llama3.1")
-        """
-        self.config = config or {}
+    # do not touch this part as it is used for deployment
+    def __init__(self, config):
+        self.config = config
         
         # Initialize vector database manager
         self.vector_db = VectorDBManager()
         
         # Initialize Ollama LLM for React agent
         self.llm = Ollama(
-            model=ollama_model,
-            request_timeout=60.0,
-            temperature=0.0
+            model="llama3.1",
+            request_timeout=300.0,  # Reduced from 300 to 60 seconds
+            temperature=0.0  # Set to 0 for maximum consistency
         )
         
         # Create tools for the React agent
@@ -154,8 +279,11 @@ class ReactRAGAgent:
         # Initialize React agent
         self.agent = self._create_react_agent()
         
-        logger.info("React RAG Agent initialized successfully")
-    
+        logger.info("React RAG Agent with Vector Database initialized successfully")
+
+    # do not touch this part as it is used for deployment
+
+
     def _create_tools(self) -> List[FunctionTool]:
         """Create tools for the React agent."""
         return [
@@ -174,17 +302,52 @@ class ReactRAGAgent:
             Formatted results from semantic search with relevance scores
         """
         try:
-            # For target-specific searches, increase top_k to get more comprehensive results
-            query_lower = query.lower()
-            if any(word in query_lower for word in ['target', 'targeting', 'targets', 'companies with', 'drugs for']):
-                top_k = max(top_k, 40)  # Increase for target searches
+            # PRIORITY 1: Apply query expansion and normalization
+            # Extract target and expand with synonyms
+            original_query = query
+            target = self._extract_target_from_question(query)
+            expanded_targets = set()
+            if target:
+                expanded_targets = expand_target_query(target)
             
-            results = self.vector_db.semantic_search(query, top_k)
+            # Normalize query before embedding
+            normalized_query = query
+            if target:
+                # Replace target in query with normalized version
+                normalized_query = query.replace(target, normalize_target_name(target))
+            
+            # PRIORITY 5: Detect "list all" queries and increase top_k
+            query_lower = query.lower()
+            is_list_all_query = any(phrase in query_lower for phrase in ['list all', 'all companies', 'all drugs', 'all targets', 'show all', 'give me all'])
+            
+            # PRIORITY 5: Increase top_k for comprehensive queries
+            if is_list_all_query:
+                top_k = max(top_k, 80)  # Much higher for "list all" queries
+            elif any(word in query_lower for word in ['target', 'targeting', 'targets', 'companies with', 'drugs for']):
+                top_k = max(top_k, 50)  # Increase for target searches
+            
+            # PRIORITY 1: Use expanded query for search (if target found)
+            search_query = normalized_query
+            if expanded_targets and len(expanded_targets) > 1:
+                # Create expanded query with OR for synonyms
+                target_queries = [f"{t}" for t in list(expanded_targets)[:5]]  # Limit to 5 expansions
+                # For "companies with HER2" type queries, expand properly
+                if 'company' in query_lower or 'companies' in query_lower:
+                    expanded_queries = [f"{t} companies drugs" for t in target_queries]
+                    search_query = " OR ".join(expanded_queries[:3])  # Use top 3 for search
+                elif 'drug' in query_lower or 'drugs' in query_lower:
+                    expanded_queries = [f"{t} drugs" for t in target_queries]
+                    search_query = " OR ".join(expanded_queries[:3])
+                else:
+                    search_query = " OR ".join(target_queries[:3])
+            
+            # Perform semantic search with expanded/normalized query
+            results = self.vector_db.semantic_search(search_query, top_k)
             
             if not results:
                 return f"No semantic search results found for '{query}'"
             
-            # Extract ALL entities: companies, drugs, and targets (comprehensive extraction)
+            # Extract ALL entities: companies, drugs, and targets (comprehensive extraction with normalization)
             companies_gt = set()
             companies_db = set()
             drugs_gt = set()
@@ -192,30 +355,51 @@ class ReactRAGAgent:
             targets_gt = set()
             targets_db = set()
             
+            # Normalize company names for deduplication
+            company_normalized_map = {}  # normalized -> canonical
+            
             for result in results:
                 metadata = result.get("metadata", {})
                 source = metadata.get("source", "unknown")
                 company = metadata.get("company", "").strip()
                 drug = metadata.get("generic_name", "").strip() or metadata.get("brand_name", "").strip()
-                target = metadata.get("target", "").strip()
+                target_str = metadata.get("target", "").strip()
                 
+                # Normalize and deduplicate companies
                 if company and company != "Unknown":
-                    if source == "ground_truth":
-                        companies_gt.add(company)
-                    elif source == "database":
-                        companies_db.add(company)
+                    company_norm = normalize_company_name(company)
+                    if company_norm:
+                        # Use canonical form (first occurrence)
+                        if company_norm not in company_normalized_map:
+                            company_normalized_map[company_norm] = company
+                        canonical_company = company_normalized_map[company_norm]
+                        
+                        if source == "ground_truth":
+                            companies_gt.add(canonical_company)
+                        elif source == "database":
+                            companies_db.add(canonical_company)
                 
+                # Normalize drug names
                 if drug:
-                    if source == "ground_truth":
-                        drugs_gt.add(drug)
-                    elif source == "database":
-                        drugs_db.add(drug)
+                    drug_norm = normalize_drug_name(drug)
+                    if drug_norm:
+                        if source == "ground_truth":
+                            drugs_gt.add(drug)  # Keep original for display
+                        elif source == "database":
+                            drugs_db.add(drug)
                 
-                if target and target != "N/A":
-                    if source == "ground_truth":
-                        targets_gt.add(target)
-                    elif source == "database":
-                        targets_db.add(target)
+                # Normalize and expand targets
+                if target_str and target_str != "N/A":
+                    # Handle comma-separated targets
+                    targets = [t.strip() for t in target_str.split(',')]
+                    for target in targets:
+                        if target:
+                            target_normalized = normalize_target_name(target)
+                            if target_normalized:
+                                if source == "ground_truth":
+                                    targets_gt.add(target_normalized)
+                                elif source == "database":
+                                    targets_db.add(target_normalized)
             
             # Format all results
             formatted_results = []
@@ -230,6 +414,19 @@ class ReactRAGAgent:
                 targets_gt, targets_db
             )
             
+            # PRIORITY 7: Add explicit instruction in tool output
+            explicit_instruction = "\n\n" + "="*80
+            explicit_instruction += "\n⚠️ CRITICAL INSTRUCTION - YOU MUST FOLLOW THIS:"
+            explicit_instruction += f"\nYou found {len(companies_gt) + len(companies_db)} total companies in the search results above."
+            if companies_gt:
+                explicit_instruction += f"\n🏆 Ground Truth companies ({len(companies_gt)}): {', '.join(sorted(companies_gt))}"
+            if companies_db:
+                explicit_instruction += f"\n📊 Database companies ({len(companies_db)}): {', '.join(sorted(companies_db))}"
+            explicit_instruction += f"\n\nYOU MUST list ALL {len(companies_gt) + len(companies_db)} companies by name in your answer."
+            explicit_instruction += "\nDO NOT use phrases like 'other companies', 'among others', 'etc.', or any vague shortcuts."
+            explicit_instruction += "\nList every single company name explicitly with their drugs and details."
+            explicit_instruction += "\n" + "="*80
+            
             # Check if table format is requested
             query_lower = query.lower()
             is_table_request = any(word in query_lower for word in ['table', 'make a table', 'create a table', 'format as table'])
@@ -237,14 +434,14 @@ class ReactRAGAgent:
             if is_table_request:
                 # Generate table-ready data
                 table_data = self._generate_table_data(results, companies_gt, companies_db, drugs_gt, drugs_db, targets_gt, targets_db)
-                return f"Semantic Search Results for '{query}':\n" + "\n".join(formatted_results) + summary + table_data
+                return f"Semantic Search Results for '{query}':\n" + "\n".join(formatted_results) + summary + explicit_instruction + table_data
             
-            return f"Semantic Search Results for '{query}':\n" + "\n".join(formatted_results) + summary
-            
+            return f"Semantic Search Results for '{query}':\n" + "\n".join(formatted_results) + summary + explicit_instruction
+                
         except Exception as e:
             logger.error(f"Semantic search error: {e}")
             return f"Error in semantic search: {str(e)}"
-    
+        
     def _multi_query_search_tool(self, query: str) -> str:
         """Perform multiple related searches for complex questions.
         
@@ -255,7 +452,28 @@ class ReactRAGAgent:
             Aggregated results from multiple related searches
         """
         try:
-            search_queries = self._determine_search_strategy(query)
+            # PRIORITY 6: Automatically trigger multi-query for "list all" queries
+            query_lower = query.lower()
+            is_list_all_query = any(phrase in query_lower for phrase in ['list all', 'all companies', 'all drugs', 'all targets', 'show all', 'give me all'])
+            
+            if is_list_all_query:
+                # Extract target and expand
+                target = self._extract_target_from_question(query)
+                expanded_targets = set()
+                if target:
+                    expanded_targets = expand_target_query(target)
+                
+                # Create comprehensive search queries
+                search_queries = []
+                if expanded_targets:
+                    for t in list(expanded_targets)[:3]:
+                        search_queries.append(f"{t} companies drugs")
+                        search_queries.append(f"{t} targeting companies")
+                        search_queries.append(f"{t} drugs companies")
+                else:
+                    search_queries = [query, f"{query} companies", f"{query} drugs", f"{query} targeting"]
+            else:
+                search_queries = self._determine_search_strategy(query)
             
             # Execute multiple searches
             all_results = []
@@ -263,7 +481,7 @@ class ReactRAGAgent:
                 results = self.vector_db.semantic_search(search_query, top_k=MULTI_QUERY_TOP_K)
                 all_results.extend(results)
             
-            # Extract ALL entities: companies, drugs, and targets (comprehensive extraction)
+            # Extract ALL entities: companies, drugs, and targets (comprehensive extraction with normalization)
             companies_gt = set()
             companies_db = set()
             drugs_gt = set()
@@ -271,30 +489,49 @@ class ReactRAGAgent:
             targets_gt = set()
             targets_db = set()
             
+            # Normalize company names for deduplication
+            company_normalized_map = {}  # normalized -> canonical
+            
             for result in all_results:
                 metadata = result.get("metadata", {})
                 source = metadata.get("source", "unknown")
                 company = metadata.get("company", "").strip()
                 drug = metadata.get("generic_name", "").strip() or metadata.get("brand_name", "").strip()
-                target = metadata.get("target", "").strip()
+                target_str = metadata.get("target", "").strip()
                 
+                # Normalize and deduplicate companies
                 if company and company != "Unknown":
-                    if source == "ground_truth":
-                        companies_gt.add(company)
-                    elif source == "database":
-                        companies_db.add(company)
+                    company_norm = normalize_company_name(company)
+                    if company_norm:
+                        if company_norm not in company_normalized_map:
+                            company_normalized_map[company_norm] = company
+                        canonical_company = company_normalized_map[company_norm]
+                        
+                        if source == "ground_truth":
+                            companies_gt.add(canonical_company)
+                        elif source == "database":
+                            companies_db.add(canonical_company)
                 
+                # Normalize drug names
                 if drug:
-                    if source == "ground_truth":
-                        drugs_gt.add(drug)
-                    elif source == "database":
-                        drugs_db.add(drug)
+                    drug_norm = normalize_drug_name(drug)
+                    if drug_norm:
+                        if source == "ground_truth":
+                            drugs_gt.add(drug)  # Keep original for display
+                        elif source == "database":
+                            drugs_db.add(drug)
                 
-                if target and target != "N/A":
-                    if source == "ground_truth":
-                        targets_gt.add(target)
-                    elif source == "database":
-                        targets_db.add(target)
+                # Normalize and expand targets
+                if target_str and target_str != "N/A":
+                    targets = [t.strip() for t in target_str.split(',')]
+                    for target in targets:
+                        if target:
+                            target_normalized = normalize_target_name(target)
+                            if target_normalized:
+                                if source == "ground_truth":
+                                    targets_gt.add(target_normalized)
+                                elif source == "database":
+                                    targets_db.add(target_normalized)
             
             # Aggregate and deduplicate results
             aggregated_results = self._aggregate_search_results(all_results)
@@ -402,56 +639,35 @@ class ReactRAGAgent:
                                  companies_gt: set = None, companies_db: set = None,
                                  drugs_gt: set = None, drugs_db: set = None,
                                  targets_gt: set = None, targets_db: set = None) -> str:
-        """Generate comprehensive summary with ALL entities (targets, drugs, companies) found."""
-        summary = f"\n\n{'='*60}\nCOMPREHENSIVE SUMMARY FOR '{query}':\n{'='*60}"
-        summary += f"\n\nTotal search results: {len(results)}"
+        """Generate concise summary with key entities found."""
+        # Deduplicate and normalize all sets
+        all_companies = sorted(set((companies_gt or set()) | (companies_db or set())))
+        all_targets = sorted(set((targets_gt or set()) | (targets_db or set())))
+        all_drugs = sorted(set((drugs_gt or set()) | (drugs_db or set())))
         
-        # COMPREHENSIVE ENTITY LISTS - Always show ALL targets, drugs, and companies found
+        summary = f"\n📊 Summary for '{query}' - Total results: {len(results)}"
         
-        # Targets (Ground Truth first)
-        if targets_gt or targets_db:
-            summary += f"\n\n{'='*60}\n🎯 TARGETS FOUND:"
-            if targets_gt:
-                targets_gt_sorted = sorted(targets_gt)
-                summary += f"\n   🏆 GROUND TRUTH TARGETS ({len(targets_gt)} targets) - You MUST list ALL:"
-                for i, target in enumerate(targets_gt_sorted, 1):
-                    summary += f"\n      {i}. {target}"
-            if targets_db:
-                targets_db_sorted = sorted(targets_db)
-                summary += f"\n   📊 DATABASE TARGETS ({len(targets_db)} targets - supplementary):"
-                for i, target in enumerate(targets_db_sorted, 1):
-                    summary += f"\n      {i}. {target}"
-            summary += f"\n{'='*60}"
+        # Concise entity counts (limit display to prevent huge responses)
+        if all_companies:
+            summary += f"\n\n🏢 Companies ({len(all_companies)}):"
+            if len(all_companies) > 15:
+                summary += f" {', '.join(all_companies[:15])}... and {len(all_companies)-15} more"
+            else:
+                summary += f" {', '.join(all_companies)}"
         
-        # Drugs (Ground Truth first)
-        if drugs_gt or drugs_db:
-            summary += f"\n\n{'='*60}\n💊 DRUGS FOUND:"
-            if drugs_gt:
-                drugs_gt_sorted = sorted(drugs_gt)
-                summary += f"\n   🏆 GROUND TRUTH DRUGS ({len(drugs_gt)} drugs) - You MUST list ALL:"
-                for i, drug in enumerate(drugs_gt_sorted, 1):
-                    summary += f"\n      {i}. {drug}"
-            if drugs_db:
-                drugs_db_sorted = sorted(drugs_db)
-                summary += f"\n   📊 DATABASE DRUGS ({len(drugs_db)} drugs - supplementary):"
-                for i, drug in enumerate(drugs_db_sorted, 1):
-                    summary += f"\n      {i}. {drug}"
-            summary += f"\n{'='*60}"
+        if all_targets:
+            summary += f"\n\n🎯 Targets ({len(all_targets)}):"
+            if len(all_targets) > 15:
+                summary += f" {', '.join(all_targets[:15])}... and {len(all_targets)-15} more"
+            else:
+                summary += f" {', '.join(all_targets)}"
         
-        # Companies (Ground Truth first)
-        if companies_gt or companies_db:
-            summary += f"\n\n{'='*60}\n🏢 COMPANIES FOUND:"
-            if companies_gt:
-                companies_gt_sorted = sorted(companies_gt)
-                summary += f"\n   🏆 GROUND TRUTH COMPANIES ({len(companies_gt)} companies) - You MUST list ALL:"
-                for i, company in enumerate(companies_gt_sorted, 1):
-                    summary += f"\n      {i}. {company}"
-            if companies_db:
-                companies_db_sorted = sorted(companies_db)
-                summary += f"\n   📊 DATABASE COMPANIES ({len(companies_db)} companies - supplementary):"
-                for i, company in enumerate(companies_db_sorted, 1):
-                    summary += f"\n      {i}. {company}"
-            summary += f"\n{'='*60}"
+        if all_drugs:
+            summary += f"\n\n💊 Drugs ({len(all_drugs)}):"
+            if len(all_drugs) > 15:
+                summary += f" {', '.join(all_drugs[:15])}... and {len(all_drugs)-15} more"
+            else:
+                summary += f" {', '.join(all_drugs)}"
         
         # Sources found
         sources_found = {r.get("metadata", {}).get("source", "unknown") for r in results}
@@ -462,28 +678,12 @@ class ReactRAGAgent:
         }
         included = [label for key, label in source_labels.items() if key in sources_found]
         if included:
-            summary += f"\n\nSOURCES: {', '.join(included)}"
+            summary += f"\n\nSources: {', '.join(included)}"
         
-        # Critical reminder - comprehensive listing requirement
-        total_entities = len(targets_gt or set()) + len(drugs_gt or set()) + len(companies_gt or set())
-        if total_entities > 0:
-            summary += f"\n\n{'='*60}"
-            summary += f"\n⚠️ CRITICAL REQUIREMENT - COMPREHENSIVE INFORMATION:"
-            summary += f"\nYou found {total_entities} total entities in Ground Truth (targets + drugs + companies)."
-            summary += f"\nYou MUST provide comprehensive information:"
-            if targets_gt:
-                summary += f"\n   • List ALL {len(targets_gt)} targets found"
-            if drugs_gt:
-                summary += f"\n   • List ALL {len(drugs_gt)} drugs found"
-            if companies_gt:
-                summary += f"\n   • List ALL {len(companies_gt)} companies found"
-            summary += f"\n\nProvide complete relationships:"
-            summary += f"\n   • For each target: show all drugs and companies"
-            summary += f"\n   • For each drug: show all companies and targets"
-            summary += f"\n   • For each company: show all drugs and targets"
-            summary += f"\n\nDO NOT use 'among others', 'etc.', or any shortcuts."
-            summary += f"\nList every single entity explicitly with full details."
-            summary += f"\n{'='*60}"
+        # Concise reminder
+        if companies_gt or companies_db:
+            total_companies = len(companies_gt or set()) + len(companies_db or set())
+            summary += f"\n\n⚠️ List ALL {total_companies} companies found above. DO NOT use 'among others', 'etc.', or shortcuts."
         
         return summary
     
@@ -564,9 +764,10 @@ class ReactRAGAgent:
         return "\n".join(table_lines)
     
     def _group_results_by_source_and_company(self, results: List[Dict[str, Any]]) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
-        """Group search results by source and company, prioritizing Ground Truth over Database duplicates."""
+        """Group search results by source and company with normalization for deduplication."""
         grouped_results = {}
-        seen_gt_drugs = set()  # Track Ground Truth drugs to prevent duplicates
+        seen_gt_drugs = set()  # Track Ground Truth drugs to prevent duplicates (normalized)
+        company_normalized_map = {}  # normalized -> canonical
         
         # First pass: Collect all Ground Truth results
         for result in results:
@@ -577,14 +778,23 @@ class ReactRAGAgent:
                 drug_name = metadata.get("generic_name", "")
                 
                 if source == "ground_truth" and company and company != "Unknown" and company.strip():
-                    if source not in grouped_results:
-                        grouped_results[source] = {}
-                    if company not in grouped_results[source]:
-                        grouped_results[source][company] = []
-                    
-                    grouped_results[source][company].append(result)
-                    drug_key = f"{drug_name}_{company}".lower()
-                    seen_gt_drugs.add(drug_key)
+                    # Normalize company name
+                    company_norm = normalize_company_name(company)
+                    if company_norm:
+                        if company_norm not in company_normalized_map:
+                            company_normalized_map[company_norm] = company
+                        canonical_company = company_normalized_map[company_norm]
+                        
+                        if source not in grouped_results:
+                            grouped_results[source] = {}
+                        if canonical_company not in grouped_results[source]:
+                            grouped_results[source][canonical_company] = []
+                        
+                        grouped_results[source][canonical_company].append(result)
+                        # Use normalized key for deduplication
+                        drug_norm = normalize_drug_name(drug_name)
+                        drug_key = f"{drug_norm}_{company_norm}"
+                        seen_gt_drugs.add(drug_key)
             except Exception as e:
                 logger.debug(f"Error processing Ground Truth result: {e}")
                 continue
@@ -598,16 +808,25 @@ class ReactRAGAgent:
                 drug_name = metadata.get("generic_name", "")
                 
                 if source == "database" and company and company != "Unknown" and company.strip():
-                    drug_key = f"{drug_name}_{company}".lower()
+                    # Normalize for deduplication
+                    company_norm = normalize_company_name(company)
+                    drug_norm = normalize_drug_name(drug_name)
+                    drug_key = f"{drug_norm}_{company_norm}"
+                    
                     if drug_key in seen_gt_drugs:
                         continue  # Skip duplicate - Ground Truth takes priority
                     
-                    if source not in grouped_results:
-                        grouped_results[source] = {}
-                    if company not in grouped_results[source]:
-                        grouped_results[source][company] = []
-                    
-                    grouped_results[source][company].append(result)
+                    if company_norm:
+                        if company_norm not in company_normalized_map:
+                            company_normalized_map[company_norm] = company
+                        canonical_company = company_normalized_map[company_norm]
+                        
+                        if source not in grouped_results:
+                            grouped_results[source] = {}
+                        if canonical_company not in grouped_results[source]:
+                            grouped_results[source][canonical_company] = []
+                        
+                        grouped_results[source][canonical_company].append(result)
             except Exception as e:
                 logger.debug(f"Error processing Database result: {e}")
                 continue
@@ -629,7 +848,7 @@ class ReactRAGAgent:
             except Exception as e:
                 logger.debug(f"Error processing other source result: {e}")
                 continue
-        
+            
         return grouped_results
     
     def _format_aggregated_results(self, grouped_results: Dict[str, Dict[str, List[Dict[str, Any]]]]) -> List[str]:
@@ -660,10 +879,10 @@ class ReactRAGAgent:
                 continue
             
             formatted_results.append(f"\n{source_labels.get(source, source.upper())}:")
-            
+                
             for company, drugs in companies.items():
                 all_companies.add(company)
-                formatted_results.append(f"\n🏢 {company}:")
+                formatted_results.append(f"\n🏢 **{company}**:")
                 for drug in drugs:
                     try:
                         metadata = drug.get("metadata", {})
@@ -671,13 +890,19 @@ class ReactRAGAgent:
                         brand_name = metadata.get('brand_name', '').strip()
                         target = metadata.get('target', '').strip()
                         
-                        # Track all entities
+                        # Track all entities (normalize to avoid duplicates)
                         if generic_name:
                             all_drugs.add(generic_name)
                         elif brand_name:
                             all_drugs.add(brand_name)
                         if target and target != "N/A":
-                            all_targets.add(target)
+                            # Handle comma-separated targets and normalize
+                            targets = [t.strip() for t in target.split(',')]
+                            for t in targets:
+                                if t:
+                                    normalized = normalize_target_name(t)
+                                    if normalized:
+                                        all_targets.add(normalized)
                         
                         # Format drug with comprehensive info
                         if generic_name:
@@ -703,17 +928,28 @@ class ReactRAGAgent:
                         logger.debug(f"Error formatting drug result: {e}")
                         continue
         
-        # Add comprehensive entity summary at the end
+        # Add concise entity summary at the end (limit to prevent huge responses)
         if all_targets or all_drugs or all_companies:
-            formatted_results.append(f"\n\n{'='*60}")
-            formatted_results.append("📊 COMPREHENSIVE ENTITY SUMMARY:")
+            formatted_results.append(f"\n📊 **Summary:**")
+            # Deduplicate and limit display
             if all_targets:
-                formatted_results.append(f"   🎯 Targets: {', '.join(sorted(all_targets))}")
+                unique_targets = sorted(set(all_targets))
+                if len(unique_targets) > 15:
+                    formatted_results.append(f"   🎯 Targets ({len(unique_targets)}): {', '.join(unique_targets[:15])}... and {len(unique_targets)-15} more")
+                else:
+                    formatted_results.append(f"   🎯 Targets ({len(unique_targets)}): {', '.join(unique_targets)}")
             if all_drugs:
-                formatted_results.append(f"   💊 Drugs: {', '.join(sorted(all_drugs))}")
+                unique_drugs = sorted(set(all_drugs))
+                if len(unique_drugs) > 15:
+                    formatted_results.append(f"   💊 Drugs ({len(unique_drugs)}): {', '.join(unique_drugs[:15])}... and {len(unique_drugs)-15} more")
+                else:
+                    formatted_results.append(f"   💊 Drugs ({len(unique_drugs)}): {', '.join(unique_drugs)}")
             if all_companies:
-                formatted_results.append(f"   🏢 Companies: {', '.join(sorted(all_companies))}")
-            formatted_results.append(f"{'='*60}")
+                unique_companies = sorted(set(all_companies))
+                if len(unique_companies) > 15:
+                    formatted_results.append(f"   🏢 Companies ({len(unique_companies)}): {', '.join(unique_companies[:15])}... and {len(unique_companies)-15} more")
+                else:
+                    formatted_results.append(f"   🏢 Companies ({len(unique_companies)}): {', '.join(unique_companies)}")
         
         return formatted_results
     
@@ -753,7 +989,7 @@ class ReactRAGAgent:
         return [query, f"{query} drugs", f"{query} companies", f"{query} clinical trials"]
     
     def _extract_target_from_question(self, question: str) -> Optional[str]:
-        """Extract target name from question using regex patterns and capitalization."""
+        """Extract target name from question with normalization."""
         question_lower = question.lower()
         
         # Regex patterns for target extraction
@@ -774,7 +1010,8 @@ class ReactRAGAgent:
             if matches:
                 filtered = [m for m in matches if isinstance(m, str) and m.lower() not in common_words]
                 if filtered:
-                    return max(filtered, key=len).upper()
+                    target = max(filtered, key=len)
+                    return normalize_target_name(target)
         
         # Try capitalization-based extraction
         words = question.split()
@@ -786,24 +1023,41 @@ class ReactRAGAgent:
             if ((word.isupper() and len(word) >= 2) or 
                 (word[0].isupper() and len(word) >= 3)):
                 if word.lower() not in stop_words:
-                    return word.upper()
+                    normalized = normalize_target_name(word)
+                    if normalized:
+                        return normalized
         
         return None
     
     def _determine_search_query(self, question: str) -> str:
-        """Determine the best search query based on question type."""
+        """Determine the best search query with target synonym expansion."""
         question_lower = question.lower()
+        
+        # Extract target and expand with synonyms
+        target = self._extract_target_from_question(question)
+        expanded_targets = set()
+        if target:
+            expanded_targets = expand_target_query(target)
         
         # If question asks about companies, extract target and enhance query
         if 'company' in question_lower or 'companies' in question_lower:
-            target = self._extract_target_from_question(question)
-            if target:
-                return f"{target} companies drugs"
+            if expanded_targets:
+                # Create query with expanded targets
+                target_queries = [f"{t} companies drugs" for t in expanded_targets]
+                return " OR ".join(target_queries[:3])  # Limit to top 3 expansions
             return f"{question} companies"
         
-        # If question asks about drugs, enhance query
+        # If question asks about drugs, enhance query with target expansion
         if 'drug' in question_lower or 'drugs' in question_lower:
+            if expanded_targets:
+                target_queries = [f"{t} drugs" for t in expanded_targets]
+                return " OR ".join(target_queries[:3])
             return f"{question} drugs"
+        
+        # If target found, expand query
+        if expanded_targets:
+            target_queries = [f"{t}" for t in expanded_targets]
+            return " OR ".join(target_queries[:3])
         
         # Default: use question as-is
         return question
@@ -829,7 +1083,8 @@ class ReactRAGAgent:
                         "drug": drug_name,
                         "brand": brand_name if generic_name else "",
                         "target": metadata.get("target", ""),
-                        "mechanism": metadata.get("mechanism", ""),
+                        "indication": metadata.get("indication", ""),
+                        "clinical_trials": metadata.get("clinical_trials", ""),
                         "relevance": result.get("similarity_score", 0),
                         "source": "ground_truth"
                     })
@@ -848,7 +1103,8 @@ class ReactRAGAgent:
                         "drug": drug_name,
                         "brand": brand_name if generic_name else "",
                         "target": metadata.get("target", ""),
-                        "mechanism": metadata.get("mechanism", ""),
+                        "indication": metadata.get("indication", ""),
+                        "clinical_trials": metadata.get("clinical_trials", ""),  # Clinical trials from drug relationships
                         "relevance": result.get("similarity_score", 0),
                         "source": "database"
                     })
@@ -886,94 +1142,141 @@ class ReactRAGAgent:
         # Format Ground Truth companies FIRST
         if companies_gt:
             answer_parts.append("🏆 **Ground Truth (Primary Data):**")
+            answer_parts.append("")
             for company, drugs in companies_gt.items():
                 if company:
-                    answer_parts.append(f"\n🏢 **{company}**")
-                    # Format drugs grouped by target
-                    drugs_by_target = {}
-                    for drug in drugs:
-                        target = drug.get('target') or 'Unknown target'
-                        if target not in drugs_by_target:
-                            drugs_by_target[target] = []
-                        drugs_by_target[target].append(drug)
-                        # Track entities
-                        if drug.get('drug'):
-                            all_drugs.add(drug.get('drug'))
-                        if target and target != 'Unknown target':
-                            all_targets.add(target)
+                    # Collect all drugs for this company
+                    drug_list = []
+                    all_company_targets = set()
+                    all_company_indications = []
+                    all_company_trials = []
                     
-                    for target, target_drugs in drugs_by_target.items():
-                        drug_names = []
-                        for drug in target_drugs:
-                            drug_name = drug.get('drug') or 'Unknown drug'
-                            brand = drug.get('brand') or ''
-                            if brand:
-                                drug_names.append(f"{drug_name} ({brand})")
-                            else:
-                                drug_names.append(drug_name)
+                    for drug in drugs:
+                        drug_name = drug.get('drug') or 'Unknown drug'
+                        brand = drug.get('brand') or ''
+                        target = drug.get('target') or 'Unknown target'
+                        indication = drug.get('indication', '').strip()
+                        clinical_trials = drug.get('clinical_trials', '').strip()
                         
-                        if drug_names:
-                            drugs_list = ", ".join(drug_names)
-                            mechanism = target_drugs[0].get('mechanism', '')
-                            if mechanism:
-                                answer_parts.append(f"  • **{drugs_list}** - Target: {target}, Mechanism: {mechanism}")
-                            else:
-                                if len(target_drugs) == 1:
-                                    answer_parts.append(f"  • **{drugs_list}** - Target: {target}")
-                                else:
-                                    answer_parts.append(f"  • **{drugs_list}** - All target {target}")
-                    answer_parts.append("")
+                        # Track entities (normalize to avoid duplicates)
+                        if drug_name:
+                            all_drugs.add(drug_name)
+                        if target and target != 'Unknown target':
+                            # Handle comma-separated targets and normalize
+                            targets = [t.strip() for t in target.split(',')]
+                            for t in targets:
+                                if t:
+                                    normalized = normalize_target_name(t)
+                                    if normalized:
+                                        all_targets.add(normalized)
+                                        all_company_targets.add(normalized)
+                        
+                        # Format drug name with brand if available
+                        if brand:
+                            drug_display = f"{drug_name} ({brand})"
+                        else:
+                            drug_display = drug_name
+                        
+                        drug_list.append(f"**{drug_display}**")
+                        
+                        if indication and indication not in all_company_indications:
+                            all_company_indications.append(indication)
+                        
+                        if clinical_trials and clinical_trials not in all_company_trials:
+                            all_company_trials.append(clinical_trials)
+                    
+                    # Format one row per company
+                    company_targets = ", ".join(sorted(all_company_targets)) if all_company_targets else "Unknown target"
+                    drugs_str = ", ".join(drug_list)
+                    
+                    parts = [f"🏢 **{company}** • {drugs_str} - Target: {company_targets}"]
+                    
+                    if all_company_indications:
+                        parts.append(f"**Indication Approved**: {', '.join(all_company_indications)}")
+                    
+                    if all_company_trials:
+                        parts.append(f"**Current Clinical Trials**: {', '.join(all_company_trials)}")
+                    
+                    answer_parts.append("  " + ", ".join(parts))
+            answer_parts.append("")
         
         # Then format Database companies (supplementary)
         if companies_db:
             answer_parts.append("📊 **Internal Database (Supplementary Data):**")
+            answer_parts.append("")
             for company, drugs in companies_db.items():
                 if company:
-                    answer_parts.append(f"\n🏢 **{company}**")
-                    # Format drugs grouped by target
-                    drugs_by_target = {}
-                    for drug in drugs:
-                        target = drug.get('target') or 'Unknown target'
-                        if target not in drugs_by_target:
-                            drugs_by_target[target] = []
-                        drugs_by_target[target].append(drug)
-                        # Track entities
-                        if drug.get('drug'):
-                            all_drugs.add(drug.get('drug'))
-                        if target and target != 'Unknown target':
-                            all_targets.add(target)
+                    # Collect all drugs for this company
+                    drug_list = []
+                    all_company_targets = set()
+                    all_company_indications = []
+                    all_company_trials = []
                     
-                    for target, target_drugs in drugs_by_target.items():
-                        drug_names = []
-                        for drug in target_drugs:
-                            drug_name = drug.get('drug') or 'Unknown drug'
-                            brand = drug.get('brand') or ''
-                            if brand:
-                                drug_names.append(f"{drug_name} ({brand})")
-                            else:
-                                drug_names.append(drug_name)
+                    for drug in drugs:
+                        drug_name = drug.get('drug') or 'Unknown drug'
+                        brand = drug.get('brand') or ''
+                        target = drug.get('target') or 'Unknown target'
+                        indication = drug.get('indication', '').strip()
+                        clinical_trials = drug.get('clinical_trials', '').strip()
                         
-                        if drug_names:
-                            drugs_list = ", ".join(drug_names)
-                            mechanism = target_drugs[0].get('mechanism', '')
-                            if mechanism:
-                                answer_parts.append(f"  • **{drugs_list}** - Target: {target}, Mechanism: {mechanism}")
-                            else:
-                                if len(target_drugs) == 1:
-                                    answer_parts.append(f"  • **{drugs_list}** - Target: {target}")
-                                else:
-                                    answer_parts.append(f"  • **{drugs_list}** - All target {target}")
-                    answer_parts.append("")
+                        # Track entities (normalize to avoid duplicates)
+                        if drug_name:
+                            all_drugs.add(drug_name)
+                        if target and target != 'Unknown target':
+                            # Handle comma-separated targets and normalize
+                            targets = [t.strip() for t in target.split(',')]
+                            for t in targets:
+                                if t:
+                                    normalized = normalize_target_name(t)
+                                    if normalized:
+                                        all_targets.add(normalized)
+                                        all_company_targets.add(normalized)
+                        
+                        # Format drug name with brand if available
+                        if brand:
+                            drug_display = f"{drug_name} ({brand})"
+                        else:
+                            drug_display = drug_name
+                        
+                        drug_list.append(f"**{drug_display}**")
+                        
+                        if indication and indication not in all_company_indications:
+                            all_company_indications.append(indication)
+                        
+                        if clinical_trials and clinical_trials not in all_company_trials:
+                            all_company_trials.append(clinical_trials)
+                    
+                    # Format one row per company
+                    company_targets = ", ".join(sorted(all_company_targets)) if all_company_targets else "Unknown target"
+                    drugs_str = ", ".join(drug_list)
+                    
+                    parts = [f"🏢 **{company}** • {drugs_str} - Target: {company_targets}"]
+                    
+                    if all_company_indications:
+                        parts.append(f"**Indication Approved**: {', '.join(all_company_indications)}")
+                    
+                    if all_company_trials:
+                        parts.append(f"**Current Clinical Trials**: {', '.join(all_company_trials)}")
+                    
+                    answer_parts.append("  " + ", ".join(parts))
+            answer_parts.append("")
         
-        # Add comprehensive entity summary
+        # Add concise entity summary (limit to prevent huge responses)
         if all_targets or all_drugs:
-            answer_parts.append(f"\n{'='*60}")
-            answer_parts.append("📊 **COMPREHENSIVE ENTITY SUMMARY:**")
+            answer_parts.append(f"\n📊 **Summary:**")
+            # Deduplicate and limit display
             if all_targets:
-                answer_parts.append(f"   🎯 **All Targets Found ({len(all_targets)}):** {', '.join(sorted(all_targets))}")
+                unique_targets = sorted(set(all_targets))
+                if len(unique_targets) > 15:
+                    answer_parts.append(f"   🎯 Targets ({len(unique_targets)}): {', '.join(unique_targets[:15])}... and {len(unique_targets)-15} more")
+                else:
+                    answer_parts.append(f"   🎯 Targets ({len(unique_targets)}): {', '.join(unique_targets)}")
             if all_drugs:
-                answer_parts.append(f"   💊 **All Drugs Found ({len(all_drugs)}):** {', '.join(sorted(all_drugs))}")
-            answer_parts.append(f"{'='*60}")
+                unique_drugs = sorted(set(all_drugs))
+                if len(unique_drugs) > 15:
+                    answer_parts.append(f"   💊 Drugs ({len(unique_drugs)}): {', '.join(unique_drugs[:15])}... and {len(unique_drugs)-15} more")
+                else:
+                    answer_parts.append(f"   💊 Drugs ({len(unique_drugs)}): {', '.join(unique_drugs)}")
         
         # Add data source indicator
         if companies_gt and companies_db:
@@ -1102,12 +1405,14 @@ class ReactRAGAgent:
                 "timestamp": datetime.now().isoformat(),
                 "success": False
             }
-    
+
+    # do not touch this part as it is used for deployment
     def get_agent_status(self) -> Dict[str, Any]:
         """Get agent status and configuration."""
         return {
-            "agent_type": "react_framework",
-            "llm_model": self.llm.model if hasattr(self.llm, 'model') else "llama3.1",
+            "agent_type": "enhanced_react_framework",
+            "llm_model": "llama3.1",
+            "ollama_host": os.getenv("OLLAMA_HOST", "http://localhost:11434"),
             "tools_count": len(self.tools),
             "tools": [tool.metadata.name for tool in self.tools],
             "memory_enabled": True,
@@ -1116,9 +1421,16 @@ class ReactRAGAgent:
             "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
             "capabilities": [
                 "semantic_search",
-                "multi_query_analysis",
+                "multi_query_analysis", 
+                "drug_comparison",
+                "competitive_landscape_analysis",
+                "development_phase_analysis",
+                "cross_validation",
+                "data_consistency_checking",
+                "public_resource_search",
                 "result_aggregation",
                 "deduplication"
             ],
             "status": "active"
-        }
+        }    
+    # do not touch this part as it is used for deployment

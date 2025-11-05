@@ -17,7 +17,6 @@ sys.path.append(str(project_root))
 
 from src.models.database import get_db
 from src.models.entities import Document, Company, Drug, ClinicalTrial, Target, DrugTarget
-from src.data_collection.orchestrator import DataCollectionOrchestrator
 from config.config import settings, get_target_companies
 from src.rag.react_rag_agent import ReactRAGAgent
 from src.evaluation.feedback_manager import FeedbackManager, create_feedback_tables
@@ -643,15 +642,31 @@ def run_data_collection_ui(sources_selected):
         progress_bar.progress(10)
         
         # Run collection
-        from src.data_collection.orchestrator import DataCollectionOrchestrator
-        orchestrator = DataCollectionOrchestrator()
+        async def collect_from_sources(sources):
+            results = {}
+            
+            if "clinical_trials" in sources:
+                ct_collector = ClinicalTrialsCollector()
+                ct_data = await ct_collector.collect_data()
+                results['clinical_trials'] = sum(1 for d in ct_data if ct_collector._save_document(d))
+            
+            if "company_websites" in sources:
+                cw_collector = CompanyWebsiteCollector()
+                cw_data = await cw_collector.collect_data()
+                results['company_websites'] = sum(1 for d in cw_data if cw_collector._save_document(d))
+            
+            if "drugs" in sources:
+                drugs_collector = DrugsCollector()
+                drugs_data = await drugs_collector.collect_data()
+                results['drugs'] = sum(1 for d in drugs_data if drugs_collector._save_document(d))
+            
+            return results
         
         status_text.text("Running data collection...")
         progress_bar.progress(50)
         
-        # Note: This is a simplified version. In a real implementation,
-        # you'd want to run this in a background thread or use async properly
-        results = asyncio.run(orchestrator.run_full_collection(source_names))
+        # Run collection
+        results = asyncio.run(collect_from_sources(source_names))
         
         progress_bar.progress(100)
         status_text.text("Collection completed!")

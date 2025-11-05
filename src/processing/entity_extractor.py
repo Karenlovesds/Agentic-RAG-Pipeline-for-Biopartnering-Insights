@@ -4,6 +4,8 @@ Entity extraction module for processing collected documents and creating structu
 
 import re
 import json
+import asyncio
+import requests
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from sqlalchemy.orm import Session
@@ -14,6 +16,7 @@ from ..models.entities import (
     DrugTarget, DrugIndication, Indication
 )
 from ..models.database import get_db
+from ..data_collection.config import APIConfig
 
 
 class EntityExtractor:
@@ -53,21 +56,21 @@ class EntityExtractor:
             "targets_created": 0,
             "relationships_created": 0
         }
-    
+        
     def _process_single_document(self, doc: Document, stats: Dict[str, int]) -> None:
         """Process a single document for entity extraction."""
-        # Extract clinical trials from any document that contains NCT codes
-        if "NCT" in doc.content:
-            self._extract_clinical_trial_entities(doc)
-            stats["clinical_trials_created"] += 1
-        
+                # Extract clinical trials from any document that contains NCT codes
+                if "NCT" in doc.content:
+                    self._extract_clinical_trial_entities(doc)
+                    stats["clinical_trials_created"] += 1
+                
         # Extract entities based on document type (only for existing seed companies)
-        if doc.source_type in ["company_about", "company_pipeline", "company_products", "company_oncology"]:
+                if doc.source_type in ["company_about", "company_pipeline", "company_products", "company_oncology"]:
             self._extract_company_entities(doc)  # Only extracts drugs from pipeline docs for seed companies
-        elif doc.source_type in ["fda_drug_approval", "fda_comprehensive_approval", "drugs_com_profile"]:
-            self._extract_drug_entities(doc)
-            stats["drugs_created"] += 1
-    
+                elif doc.source_type in ["fda_drug_approval", "fda_comprehensive_approval", "drugs_com_profile"]:
+                    self._extract_drug_entities(doc)
+                    stats["drugs_created"] += 1
+                    
     def _finalize_extraction(self, stats: Dict[str, int]) -> None:
         """Finalize the extraction process."""
         # Create relationships between entities
@@ -296,28 +299,28 @@ class EntityExtractor:
     
     def _update_existing_drug(self, existing_drug: Drug, drug_info: Dict[str, Any], company_id: int):
         """Update an existing drug with new information."""
-        existing_drug.brand_name = drug_info.get("brand_name") or existing_drug.brand_name
-        existing_drug.drug_class = drug_info.get("drug_class") or existing_drug.drug_class
-        existing_drug.mechanism_of_action = drug_info.get("mechanism_of_action") or existing_drug.mechanism_of_action
-        existing_drug.fda_approval_status = drug_info.get("fda_approval_status", existing_drug.fda_approval_status)
-        existing_drug.fda_approval_date = drug_info.get("fda_approval_date") or existing_drug.fda_approval_date
-        existing_drug.nct_codes = drug_info.get("nct_codes", [])
-        existing_drug.company_id = company_id
+            existing_drug.brand_name = drug_info.get("brand_name") or existing_drug.brand_name
+            existing_drug.drug_class = drug_info.get("drug_class") or existing_drug.drug_class
+            existing_drug.mechanism_of_action = drug_info.get("mechanism_of_action") or existing_drug.mechanism_of_action
+            existing_drug.fda_approval_status = drug_info.get("fda_approval_status", existing_drug.fda_approval_status)
+            existing_drug.fda_approval_date = drug_info.get("fda_approval_date") or existing_drug.fda_approval_date
+            existing_drug.nct_codes = drug_info.get("nct_codes", [])
+            existing_drug.company_id = company_id
     
     def _create_new_drug(self, drug_info: Dict[str, Any], company_id: int):
         """Create a new drug entity."""
-        drug = Drug(
-            generic_name=drug_info["generic_name"],
-            brand_name=drug_info.get("brand_name"),
-            drug_class=drug_info.get("drug_class"),
-            mechanism_of_action=drug_info.get("mechanism_of_action"),
-            fda_approval_status=drug_info.get("fda_approval_status", False),
-            fda_approval_date=drug_info.get("fda_approval_date"),
-            company_id=company_id,
-            nct_codes=drug_info.get("nct_codes", []),
-            created_at=datetime.utcnow()
-        )
-        self.db.add(drug)
+            drug = Drug(
+                generic_name=drug_info["generic_name"],
+                brand_name=drug_info.get("brand_name"),
+                drug_class=drug_info.get("drug_class"),
+                mechanism_of_action=drug_info.get("mechanism_of_action"),
+                fda_approval_status=drug_info.get("fda_approval_status", False),
+                fda_approval_date=drug_info.get("fda_approval_date"),
+                company_id=company_id,
+                nct_codes=drug_info.get("nct_codes", []),
+                created_at=datetime.utcnow()
+            )
+            self.db.add(drug)
     
     def _create_relationships(self):
         """Create relationships between entities."""
@@ -637,8 +640,8 @@ class EntityExtractor:
         if any(phrase in name.lower() for phrase in descriptive_phrases):
             return True
         
-        return False
-    
+            return False
+        
     def _has_drug_indicators(self, name: str) -> bool:
         """Check if name has positive drug indicators."""
         drug_indicators = [
@@ -767,15 +770,297 @@ class EntityExtractor:
         
         return indication
 
+    async def extract_fda_indications_for_drugs(self, drug_names: Optional[List[str]] = None) -> Dict[str, int]:
+        """Extract FDA approved indications for drugs and update database.
+        
+        Args:
+            drug_names: Optional list of drug names to process. If None, processes all drugs in database.
+            
+        Returns:
+            Dictionary with extraction statistics.
+        """
+        logger.info("Starting FDA indication extraction...")
+        
+        # Get drugs to process
+        if drug_names:
+            drugs = self.db.query(Drug).filter(Drug.generic_name.in_(drug_names)).all()
+        else:
+            # Get all unique drugs from database
+            drugs = self.db.query(Drug).distinct(Drug.generic_name).all()
+        
+        logger.info(f"📊 Found {len(drugs)} drugs to process")
+        
+        stats = {
+            "drugs_processed": 0,
+            "indications_extracted": 0,
+            "indications_created": 0,
+            "relationships_created": 0
+        }
+        
+        # Process each drug
+        for drug in drugs:
+            try:
+                indications = await self._extract_fda_indications_for_drug(drug.generic_name)
+                if indications:
+                    created, relationships = self._update_drug_indications(drug, indications)
+                    stats["indications_extracted"] += len(indications)
+                    stats["indications_created"] += created
+                    stats["relationships_created"] += relationships
+                    stats["drugs_processed"] += 1
+            except Exception as e:
+                logger.error(f"Error extracting FDA indications for {drug.generic_name}: {e}")
+                continue
+            
+            # Small delay to avoid rate limiting
+            await asyncio.sleep(0.5)
+        
+        self.db.commit()
+        logger.info(f"✅ FDA indication extraction completed: {stats}")
+        return stats
+    
+    async def _extract_fda_indications_for_drug(self, drug_name: str) -> List[str]:
+        """Extract approved indications for a single drug from FDA API."""
+        indications = []
+        
+        try:
+            # Search FDA API by generic name
+            fda_data = await self._search_fda_database(f'openfda.generic_name:"{drug_name}"')
+            
+            if not fda_data:
+                # Try brand name
+                fda_data = await self._search_fda_database(f'openfda.brand_name:"{drug_name}"')
+            
+            if not fda_data:
+                # Try substance name
+                fda_data = await self._search_fda_database(f'openfda.substance_name:"{drug_name}"')
+            
+            if not fda_data:
+                logger.debug(f"No FDA data found for {drug_name}")
+                return indications
+            
+            # Extract indications from all FDA results
+            for result in fda_data:
+                drug_indications = self._parse_fda_approval_indications(result, drug_name)
+                indications.extend(drug_indications)
+            
+            # Remove duplicates while preserving order
+            seen = set()
+            unique_indications = []
+            for ind in indications:
+                ind_lower = ind.lower().strip()
+                if ind_lower and ind_lower not in seen:
+                    seen.add(ind_lower)
+                    unique_indications.append(ind)
+            
+            if unique_indications:
+                logger.info(f"✅ Extracted {len(unique_indications)} indications for {drug_name}")
+            
+            return unique_indications
+            
+        except Exception as e:
+            logger.error(f"Error extracting indications for {drug_name}: {e}")
+            return []
+    
+    def _parse_fda_approval_indications(self, fda_result: Dict[str, Any], drug_name: str) -> List[str]:
+        """Parse FDA result to extract indication approved text."""
+        indications = []
+        drug_name_lower = drug_name.lower()
+        
+        # Get all text fields from FDA result
+        text_fields = [
+            fda_result.get("description", []),
+            fda_result.get("indications_and_usage", []),
+            fda_result.get("recent_major_changes", []),
+            fda_result.get("purpose", []),
+        ]
+        
+        # Check openfda section for brand/generic names
+        openfda = fda_result.get("openfda", {})
+        brand_names = openfda.get("brand_name", []) if openfda else []
+        generic_names = openfda.get("generic_name", []) if openfda else []
+        
+        # Flatten text fields
+        all_text = []
+        for field in text_fields:
+            if isinstance(field, list):
+                all_text.extend(field)
+            elif isinstance(field, str):
+                all_text.append(field)
+        
+        # Search for FDA approval patterns
+        for text in all_text:
+            if not text or not isinstance(text, str):
+                continue
+            
+            text_lower = text.lower()
+            
+            # Check if drug name is mentioned
+            if drug_name_lower not in text_lower:
+                brand_match = any(name.lower() in text_lower for name in brand_names if name)
+                generic_match = any(name.lower() in text_lower for name in generic_names if name)
+                if not (brand_match or generic_match):
+                    continue
+            
+            # Pattern 1: "FDA approves [drug] for [indication]"
+            pattern1 = rf"FDA\s+approves\s+(?:{re.escape(drug_name)}\s+and\s+[\w\s-]+|{re.escape(drug_name)})\s+for\s+([^.,;]+?)(?:\.|,|;|$)"
+            matches = re.finditer(pattern1, text, re.IGNORECASE)
+            for match in matches:
+                indication = match.group(1).strip()
+                indication = re.sub(r'\s+', ' ', indication).strip(',;:')
+                if indication and 5 < len(indication) < 200:
+                    indications.append(indication)
+            
+            # Pattern 2: "FDA approves [drug]" followed by "for [indication]"
+            pattern2 = rf"FDA\s+approves\s+{re.escape(drug_name)}[^.]*?for\s+([^.,;]+?)(?:\.|,|;|$)"
+            matches = re.finditer(pattern2, text, re.IGNORECASE | re.DOTALL)
+            for match in matches:
+                indication = match.group(1).strip()
+                indication = re.sub(r'\s+', ' ', indication).strip(',;:')
+                if indication and 5 < len(indication) < 200:
+                    indications.append(indication)
+            
+            # Pattern 3: Extract from structured indication fields
+            if "indication" in text_lower[:100]:
+                indication_patterns = [
+                    r"for\s+the\s+treatment\s+of\s+([^.,;]+?)(?:\.|,|;|$)",
+                    r"for\s+treatment\s+of\s+([^.,;]+?)(?:\.|,|;|$)",
+                    r"indicated\s+for\s+([^.,;]+?)(?:\.|,|;|$)",
+                    r"approved\s+for\s+([^.,;]+?)(?:\.|,|;|$)",
+                ]
+                
+                for pattern in indication_patterns:
+                    matches = re.finditer(pattern, text, re.IGNORECASE)
+                    for match in matches:
+                        indication = match.group(1).strip()
+                        indication = re.sub(r'\s+', ' ', indication).strip(',;:')
+                        if (indication and 5 < len(indication) < 200 and
+                            not any(word in indication.lower() for word in ['see', 'refer', 'section', 'package'])):
+                            indications.append(indication)
+        
+        return indications
+    
+    async def _search_fda_database(self, search_query: str) -> List[Dict[str, Any]]:
+        """Search FDA drug label database."""
+        try:
+            url = f"{APIConfig.FDA_BASE_URL}{APIConfig.FDA_ENDPOINTS['drug_label']}"
+            params = {
+                "limit": 10,
+                "search": search_query,
+                "sort": "effective_time:desc"
+            }
+            
+            response = await self._make_async_request(url, params)
+            
+            if response and response.status_code == 200:
+                data = response.json()
+                return data.get("results", [])
+            else:
+                logger.debug(f"FDA API request failed: {response.status_code if response else 'No response'}")
+                return []
+                
+        except Exception as e:
+            logger.error(f"Error searching FDA database: {e}")
+            return []
+    
+    async def _make_async_request(self, url: str, params: Dict[str, Any]) -> Optional[requests.Response]:
+        """Make asynchronous HTTP request."""
+        try:
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: requests.get(url, params=params, timeout=30)
+            )
+            return response
+        except Exception as e:
+            logger.error(f"Error making async request to {url}: {e}")
+            return None
+    
+    def _update_drug_indications(self, drug: Drug, indications: List[str]) -> tuple:
+        """Update database with extracted FDA indications.
+        
+        Returns:
+            Tuple of (indications_created, relationships_created)
+        """
+        created = 0
+        relationships = 0
+        
+        for indication_text in indications:
+            # Find or create indication
+            indication = self.db.query(Indication).filter(
+                Indication.name.ilike(f"%{indication_text}%")
+            ).first()
+            
+            if not indication:
+                indication = Indication(
+                    name=indication_text,
+                    created_at=datetime.utcnow()
+                )
+                self.db.add(indication)
+                self.db.flush()
+                created += 1
+            
+            # Check if DrugIndication relationship already exists
+            existing = self.db.query(DrugIndication).filter(
+                DrugIndication.drug_id == drug.id,
+                DrugIndication.indication_id == indication.id
+            ).first()
+            
+            if not existing:
+                # Create DrugIndication relationship
+                drug_indication = DrugIndication(
+                    drug_id=drug.id,
+                    indication_id=indication.id,
+                    approval_status=True,  # From FDA, so approved
+                    approval_date=datetime.utcnow()
+                )
+                self.db.add(drug_indication)
+                relationships += 1
+        
+        # Update drug's FDA approval status if we found indications
+        if not drug.fda_approval_status:
+            drug.fda_approval_status = True
+            drug.fda_approval_date = datetime.utcnow()
+        
+        return created, relationships
+
 
 def run_entity_extraction():
     """Run entity extraction on all documents."""
-    db = get_db()
+    db = next(get_db())
     try:
         extractor = EntityExtractor(db)
         stats = extractor.extract_all_entities()
         
         print("Entity Extraction Results:")
+        print("=" * 40)
+        for key, value in stats.items():
+            print(f"{key.replace('_', ' ').title()}: {value}")
+        
+        return stats
+    finally:
+        db.close()
+
+
+async def extract_fda_indications_for_all_drugs(drug_names: Optional[List[str]] = None):
+    """Extract FDA indications for all drugs in database.
+    
+    Args:
+        drug_names: Optional list of specific drug names to process.
+                    If None, processes all drugs in database.
+    
+    Example:
+        # Extract for all drugs
+        asyncio.run(extract_fda_indications_for_all_drugs())
+        
+        # Extract for specific drugs
+        asyncio.run(extract_fda_indications_for_all_drugs(["pembrolizumab", "nivolumab"]))
+    """
+    db = next(get_db())
+    try:
+        extractor = EntityExtractor(db)
+        stats = await extractor.extract_fda_indications_for_drugs(drug_names)
+        
+        print("FDA Indication Extraction Results:")
         print("=" * 40)
         for key, value in stats.items():
             print(f"{key.replace('_', ' ').title()}: {value}")

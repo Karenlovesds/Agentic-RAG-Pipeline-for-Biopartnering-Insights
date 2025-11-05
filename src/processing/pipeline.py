@@ -1036,7 +1036,7 @@ def extract_targets_from_documents(db: Session, batch_size: int = 100) -> int:
         if targets_created > 0 or relationships_created > 0:
             db.commit()
             logger.info(f"Created {targets_created} targets and {relationships_created} drug-target relationships in this batch")
-        
+    
         offset += batch_size
     
     logger.info(f"Total targets created: {targets_created}, relationships created: {relationships_created}")
@@ -1117,7 +1117,7 @@ def backfill_drug_targets(db: Session) -> int:
         if not target_names and drug_name in DRUG_TARGET_MAPPING:
             target_names = DRUG_TARGET_MAPPING[drug_name]
             source = "hardcoded mapping"
-        
+            
         # Create targets and relationships
         if target_names:
             for target_name in target_names:
@@ -1188,29 +1188,29 @@ def _extract_mab_targets(drug_name: str) -> set:
     """Extract targets for monoclonal antibodies using a mapping approach."""
     # Drug keyword to targets mapping
     drug_target_mapping = {
-        # PD-1 inhibitors
+    # PD-1 inhibitors
         'pembro': ['PD-1'],
         'keytruda': ['PD-1'],
         'nivo': ['PD-1'],
         'opdivo': ['PD-1'],
-        
-        # HER2 inhibitors
+    
+    # HER2 inhibitors
         'trastu': ['HER2'],
         'herceptin': ['HER2'],
-        
-        # VEGF inhibitors
+    
+    # VEGF inhibitors
         'bevaci': ['VEGF'],
         'avastin': ['VEGF'],
-        
-        # CD20 inhibitors
+    
+    # CD20 inhibitors
         'rituxi': ['CD20'],
         'rituxan': ['CD20'],
-        
-        # CTLA-4 inhibitors
+    
+    # CTLA-4 inhibitors
         'ipili': ['CTLA-4'],
         'yervoy': ['CTLA-4'],
-        
-        # PD-L1 inhibitors
+    
+    # PD-L1 inhibitors
         'atezo': ['PD-L1'],
         'tecentriq': ['PD-L1'],
         'durva': ['PD-L1'],
@@ -1234,15 +1234,15 @@ def _extract_nib_targets(drug_name: str) -> set:
     """Extract targets for kinase inhibitors using a mapping approach."""
     # Drug keyword to targets mapping
     drug_target_mapping = {
-        # CDK4/6 inhibitors
+    # CDK4/6 inhibitors
         'palbo': ['CDK4', 'CDK6'],
         'ibrance': ['CDK4', 'CDK6'],
         'ribo': ['CDK4', 'CDK6'],
         'kisqali': ['CDK4', 'CDK6'],
         'abema': ['CDK4', 'CDK6'],
         'verzenio': ['CDK4', 'CDK6'],
-        
-        # PARP inhibitors
+    
+    # PARP inhibitors
         'olapa': ['PARP'],
         'lynparza': ['PARP'],
         'ruca': ['PARP'],
@@ -1251,16 +1251,16 @@ def _extract_nib_targets(drug_name: str) -> set:
         'zejula': ['PARP'],
         'tala': ['PARP'],
         'talzenna': ['PARP'],
-        
-        # BCR-ABL/SRC inhibitors
+    
+    # BCR-ABL/SRC inhibitors
         'dasa': ['BCR-ABL', 'SRC'],
         'sprycel': ['BCR-ABL', 'SRC'],
-        
-        # ALK/ROS1/MET inhibitors
+    
+    # ALK/ROS1/MET inhibitors
         'crizo': ['ALK', 'ROS1', 'MET'],
         'xalkori': ['ALK', 'ROS1', 'MET'],
-        
-        # ALK inhibitors
+    
+    # ALK inhibitors
         'alec': ['ALK'],
         'alecensa': ['ALK'],
         'ceri': ['ALK'],
@@ -1497,19 +1497,31 @@ def deduplicate_drugs_within_company(db: Session) -> dict:
                 keep_drug = drugs[0]
                 
                 for drug in drugs[1:]:
-                    # Transfer any relationships to the kept drug
-                    # Only transfer if the relationship doesn't already exist
-                    for target_rel in drug.targets:
+                    # Query relationships directly to avoid lazy loading issues
+                    # Transfer DrugTarget relationships
+                    target_rels = db.query(DrugTarget).filter(
+                        DrugTarget.drug_id == drug.id
+                    ).all()
+                    
+                    for target_rel in target_rels:
+                        # Check if relationship already exists for keep_drug
                         existing_target_rel = db.query(DrugTarget).filter(
                             DrugTarget.drug_id == keep_drug.id,
                             DrugTarget.target_id == target_rel.target_id
                         ).first()
                         if not existing_target_rel:
+                            # Update the relationship to point to keep_drug
                             target_rel.drug_id = keep_drug.id
                         else:
+                            # Delete duplicate relationship
                             db.delete(target_rel)
                     
-                    for indication_rel in drug.indications:
+                    # Transfer DrugIndication relationships
+                    indication_rels = db.query(DrugIndication).filter(
+                        DrugIndication.drug_id == drug.id
+                    ).all()
+                    
+                    for indication_rel in indication_rels:
                         existing_indication_rel = db.query(DrugIndication).filter(
                             DrugIndication.drug_id == keep_drug.id,
                             DrugIndication.indication_id == indication_rel.indication_id
@@ -1519,10 +1531,18 @@ def deduplicate_drugs_within_company(db: Session) -> dict:
                         else:
                             db.delete(indication_rel)
                     
-                    for trial in drug.clinical_trials:
+                    # Transfer ClinicalTrial relationships
+                    trials = db.query(ClinicalTrial).filter(
+                        ClinicalTrial.drug_id == drug.id
+                    ).all()
+                    
+                    for trial in trials:
                         trial.drug_id = keep_drug.id
                     
-                    # Remove the duplicate
+                    # Flush updates before deleting to ensure relationships are updated
+                    db.flush()
+                    
+                    # Remove the duplicate drug
                     db.delete(drug)
                     removed_count += 1
         
@@ -1536,6 +1556,7 @@ def deduplicate_drugs_within_company(db: Session) -> dict:
         }
         
     except Exception as e:
+        db.rollback()
         logger.error(f"❌ Error deduplicating drugs: {e}")
         return {
             "error": str(e),
@@ -1685,7 +1706,7 @@ def run_processing(db: Session, batch_size: int = 100) -> dict:
 
     # 5) Link clinical trials to drugs based on drug names in trial titles/content
     trials_linked_to_drugs = link_clinical_trials_to_drugs(db)
-
+    
     # 6) Backfill drug-target relationships from Ground Truth and hardcoded mappings
     # This ensures all drugs get their targets linked (Priority: Ground Truth > Hardcoded)
     # Also adds Ground Truth targets to COMMON_TARGETS for document extraction
@@ -1700,7 +1721,14 @@ def run_processing(db: Session, batch_size: int = 100) -> dict:
 
     # 9) Export CSVs and summaries
     csv_exports = generate_csv_exports(db)
-
+    
+    # 10) Populate vector database for React RAG agent
+    logger.info("Populating vector database for semantic search...")
+    vector_db_result = populate_vector_database()
+    vector_db_status = vector_db_result.get("status", "unknown")
+    vector_db_chunks = vector_db_result.get("final_chunks", 0)
+    logger.info(f"Vector database population: {vector_db_status} ({vector_db_chunks} chunks)")
+    
     logger.info("Processing pipeline done")
     return {
         "companies_created": companies_created,
@@ -1713,6 +1741,8 @@ def run_processing(db: Session, batch_size: int = 100) -> dict:
         "target_relationships_created": target_relationships,
         "deduplication": deduplication,
         "csv_exports": csv_exports,
+        "vector_db_populated": vector_db_status == "success",
+        "vector_db_chunks": vector_db_chunks,
         "batch_size_used": batch_size
     }
 

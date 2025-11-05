@@ -162,29 +162,65 @@ class VectorDBManager:
         }
     
     def _extract_database_text_parts(self, drug) -> List[str]:
-        """Extract text parts from database drug."""
+        """Extract text parts from database drug with target information."""
         text_parts = []
         text_parts.append(f"Drug: {drug.generic_name}")
         if drug.brand_name:
             text_parts.append(f"Brand: {drug.brand_name}")
         text_parts.append(f"Company: {drug.company.name}")
+        
+        # Extract targets from DrugTarget relationships
+        if drug.targets:
+            targets = [dt.target.name for dt in drug.targets]
+            if targets:
+                text_parts.append(f"Targets: {', '.join(targets)}")
+        
         if drug.mechanism_of_action:
             text_parts.append(f"Mechanism: {drug.mechanism_of_action}")
         if drug.drug_class:
             text_parts.append(f"Drug Class: {drug.drug_class}")
+        
+        # Add indication information
+        if drug.indications:
+            indications = [di.indication.name for di in drug.indications]
+            if indications:
+                text_parts.append(f"Indications: {', '.join(indications)}")
+        
+        # Add clinical trial information
+        if drug.clinical_trials:
+            trial_nct_ids = [trial.nct_id for trial in drug.clinical_trials if trial.nct_id]
+            if trial_nct_ids:
+                text_parts.append(f"Clinical Trials: {', '.join(trial_nct_ids)}")
+        
         return text_parts
     
     def _create_database_metadata(self, drug) -> Dict[str, str]:
-        """Create metadata for database drug chunk."""
+        """Create metadata for database drug chunk with target information from relationships."""
+        # Extract targets from DrugTarget relationships
+        targets = []
+        if drug.targets:
+            targets = [dt.target.name for dt in drug.targets]
+        
+        # Extract indications from DrugIndication relationships
+        indications = []
+        if drug.indications:
+            indications = [di.indication.name for di in drug.indications]
+        
+        # Extract clinical trial NCT IDs from ClinicalTrial relationships
+        clinical_trials = []
+        if drug.clinical_trials:
+            clinical_trials = [trial.nct_id for trial in drug.clinical_trials if trial.nct_id]
+        
         return {
             "source": "database",
             "generic_name": drug.generic_name or "",
             "brand_name": drug.brand_name or "",
             "company": drug.company.name,
-            "target": "",
+            "target": ', '.join(targets) if targets else "",
             "mechanism": drug.mechanism_of_action or "",
             "drug_class": drug.drug_class or "",
-            "indication": "",
+            "indication": ', '.join(indications) if indications else "",
+            "clinical_trials": ', '.join(clinical_trials) if clinical_trials else "",
             "ticket": ""
         }
     
@@ -441,41 +477,129 @@ class VectorDBManager:
     
     def semantic_search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """
-        Perform semantic search on vector database.
+        Perform semantic search with hybrid scoring (similarity + metadata + source priority).
         
         Args:
-            query: Search query
+            query: Search query (may contain OR operators for expanded queries)
             top_k: Number of top results to return
             
         Returns:
-            List of search results with relevance scores
+            List of search results with hybrid relevance scores, sorted by relevance
         """
         try:
-            # Generate embedding for query
-            query_embedding = self.embedding_model.get_text_embedding(query)
+            # PRIORITY 4: Normalize query before embedding (handle OR queries)
+            # If query contains "OR", split and search each part, then combine
+            if " OR " in query.upper():
+                # Split OR queries and search each part
+                query_parts = [q.strip() for q in query.split(" OR ")]
+                all_results = []
+                seen_ids = set()
+                
+                for part_query in query_parts[:5]:  # Limit to 5 parts
+                    part_embedding = self.embedding_model.get_text_embedding(part_query)
+                    part_results = self.collection.query(
+                        query_embeddings=[part_embedding],
+                        n_results=min(top_k * 2, 50),  # Get more per part for re-ranking
+                        include=["documents", "metadatas", "distances"]
+                    )
+                    
+                    # Combine results, avoiding duplicates by document content
+                    for i in range(len(part_results["documents"][0])):
+                        doc_text = part_results["documents"][0][i]
+                        # Use document text as unique identifier
+                        if doc_text not in seen_ids:
+                            all_results.append({
+                                "document": doc_text,
+                                "metadata": part_results["metadatas"][0][i],
+                                "distance": part_results["distances"][0][i]
+                            })
+                            seen_ids.add(doc_text)
+                
+                # Convert to same format as single query
+                results = {
+                    "documents": [[r["document"] for r in all_results]],
+                    "metadatas": [[r["metadata"] for r in all_results]],
+                    "distances": [[r["distance"] for r in all_results]]
+                }
+            else:
+                # Single query - generate embedding for query
+                query_embedding = self.embedding_model.get_text_embedding(query)
             
-            # Search in ChromaDB
-            results = self.collection.query(
-                query_embeddings=[query_embedding],
-                n_results=top_k,
-                include=["documents", "metadatas", "distances"]
-            )
+                # Search with higher top_k initially for re-ranking
+                search_k = min(top_k * 2, 50)  # Get more candidates for re-ranking
+                
+                # Search in ChromaDB
+                results = self.collection.query(
+                    query_embeddings=[query_embedding],
+                    n_results=search_k,
+                    include=["documents", "metadatas", "distances"]
+                )
             
-            # Format results
+            # Format results with hybrid scoring
             formatted_results = []
+            query_lower = query.lower()
+            
             for i in range(len(results["documents"][0])):
                 # Convert distance to similarity score (lower distance = higher similarity)
                 distance = results["distances"][0][i]
-                similarity_score = 1.0 / (1.0 + distance)  # Convert distance to similarity
+                base_similarity = 1.0 / (1.0 + distance)
+                
+                metadata = results["metadatas"][0][i]
+                
+                # Hybrid scoring: base similarity + metadata boost + source priority
+                hybrid_score = base_similarity
+                
+                # Boost Ground Truth results (critical priority)
+                if metadata.get("source") == "ground_truth":
+                    hybrid_score += 0.3  # Significant boost for Ground Truth
+                
+                # Metadata match boosts
+                # Check for exact target matches (with normalization)
+                target_str = metadata.get("target", "").strip()
+                if target_str:
+                    targets = [t.strip() for t in target_str.split(',')]
+                    for target in targets:
+                        target_normalized = target.upper().replace(" ", "-").replace("_", "-")
+                        # Check if query contains target or any variant
+                        if (target.lower() in query_lower or 
+                            query_lower in target.lower() or
+                            target_normalized in query.upper()):
+                            hybrid_score += 0.2  # Exact target match boost
+                            break  # Only count once per result
+                
+                # Check for exact company matches
+                company_str = metadata.get("company", "").lower()
+                if company_str and company_str in query_lower:
+                    hybrid_score += 0.15  # Company match boost
+                
+                # Check for exact drug name matches
+                generic_name = metadata.get("generic_name", "").lower()
+                brand_name = metadata.get("brand_name", "").lower()
+                if (generic_name and generic_name in query_lower) or (brand_name and brand_name in query_lower):
+                    hybrid_score += 0.15  # Drug name match boost
+                
+                # Source priority boost (smaller than Ground Truth)
+                if metadata.get("source") == "database":
+                    hybrid_score += 0.1  # Small boost for database
+                
+                # Cap hybrid score at 1.0
+                hybrid_score = min(hybrid_score, 1.0)
                 
                 formatted_results.append({
                     "text": results["documents"][0][i],
-                    "metadata": results["metadatas"][0][i],
-                    "similarity_score": similarity_score,
+                    "metadata": metadata,
+                    "similarity_score": hybrid_score,  # Use hybrid score as similarity_score
+                    "base_similarity": base_similarity,  # Keep original for reference
                     "distance": distance
                 })
             
-            logger.info(f"Semantic search returned {len(formatted_results)} results for query: '{query}'")
+            # Sort by hybrid score (highest first)
+            formatted_results.sort(key=lambda x: x["similarity_score"], reverse=True)
+            
+            # Return top_k results after re-ranking
+            formatted_results = formatted_results[:top_k]
+            
+            logger.info(f"Semantic search returned {len(formatted_results)} results for query: '{query}' (hybrid scoring applied)")
             return formatted_results
             
         except Exception as e:
