@@ -11,6 +11,7 @@ import re
 import requests
 from pydantic import BaseModel
 from crawl4ai import AsyncWebCrawler
+from crawl4ai.async_crawler_strategy import AsyncHTTPCrawlerStrategy
 from crawl4ai.extraction_strategy import LLMExtractionStrategy
 from loguru import logger
 
@@ -83,7 +84,7 @@ class BaseCollector(ABC):
     async def _crawl_with_crawl4ai(self, url: str, extraction_strategy: Optional[LLMExtractionStrategy] = None) -> Optional[str]:
         """Crawl URL using crawl4ai."""
         try:
-            async with AsyncWebCrawler(verbose=True) as crawler:
+            async with AsyncWebCrawler(crawler_strategy=AsyncHTTPCrawlerStrategy(), verbose=True) as crawler:
                 result = await crawler.arun(
                     url=url,
                     extraction_strategy=extraction_strategy,

@@ -5,6 +5,7 @@ from typing import List, Dict, Any
 from datetime import datetime
 from loguru import logger
 from crawl4ai import AsyncWebCrawler
+from crawl4ai.async_crawler_strategy import AsyncHTTPCrawlerStrategy
 from bs4 import BeautifulSoup
 from .utils import BaseCollector, CollectedData
 from config.config import settings
@@ -106,7 +107,7 @@ class DrugsCollector(BaseCollector):
         collected_data = []
         
         try:
-            async with AsyncWebCrawler(verbose=False) as crawler:
+            async with AsyncWebCrawler(crawler_strategy=AsyncHTTPCrawlerStrategy(), verbose=False) as crawler:
                 # Search for drug on Drugs.com
                 search_url = f"https://www.drugs.com/search.php?searchterm={drug_name}"
                 result = await crawler.arun(url=search_url)
@@ -136,7 +137,7 @@ class DrugsCollector(BaseCollector):
         collected_data = []
         
         try:
-            async with AsyncWebCrawler(verbose=False) as crawler:
+            async with AsyncWebCrawler(crawler_strategy=AsyncHTTPCrawlerStrategy(), verbose=False) as crawler:
                 # Search for drug interactions on Drugs.com
                 interactions_url = f"https://www.drugs.com/drug-interactions/{drug_name.lower()}.html"
                 result = await crawler.arun(url=interactions_url)
@@ -322,7 +323,7 @@ class DrugsCollector(BaseCollector):
         collected_data = []
         
         try:
-            async with AsyncWebCrawler(verbose=False) as crawler:
+            async with AsyncWebCrawler(crawler_strategy=AsyncHTTPCrawlerStrategy(), verbose=False) as crawler:
                 # Search for FDA approval history on Drugs.com
                 # Try different URL patterns
                 search_urls = [

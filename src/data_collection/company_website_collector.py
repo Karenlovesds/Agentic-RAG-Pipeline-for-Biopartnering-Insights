@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 from loguru import logger
 from crawl4ai import AsyncWebCrawler
+from crawl4ai.async_crawler_strategy import AsyncHTTPCrawlerStrategy
 from bs4 import BeautifulSoup
 from .utils import BaseCollector, CollectedData
 from .data_validator import DataValidator
@@ -28,7 +29,7 @@ class CompanyWebsiteCollector(BaseCollector):
         
         logger.info(f"Starting comprehensive company website collection for {len(companies)} companies")
         
-        async with AsyncWebCrawler(verbose=False) as crawler:
+        async with AsyncWebCrawler(crawler_strategy=AsyncHTTPCrawlerStrategy(), verbose=False) as crawler:
             for company in companies:
                 try:
                     logger.info(f"Collecting comprehensive data for {company}...")
@@ -228,38 +229,13 @@ class CompanyWebsiteCollector(BaseCollector):
         
         for url_type, url, keywords in url_types:
             try:
-                # Try with JavaScript rendering first for better content extraction
-                from crawl4ai.async_configs import CrawlerRunConfig
-                
-                config = CrawlerRunConfig(
+                # Use basic crawling without JavaScript rendering (no Playwright required)
+                result = await crawler.arun(
+                    url=url,
                     word_count_threshold=20,
-                    extraction_strategy=None,
-                    js_code="""
-                    // Wait for page to load and dynamic content to render
-                    await new Promise(resolve => setTimeout(resolve, 5000));
-                    
-                    // Scroll to load any lazy-loaded content
-                    window.scrollTo(0, document.body.scrollHeight);
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                    window.scrollTo(0, 0);
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                    """,
-                    wait_until='networkidle',
-                    page_timeout=30000,
-                    delay_before_return_html=2.0
+                    extraction_strategy="NoExtractionStrategy",
+                    bypass_cache=True
                 )
-                
-                result = await crawler.arun(url=url, config=config)
-                
-                # If JavaScript rendering fails, fall back to basic scraping
-                if not result.success or len(result.cleaned_html) < 100:
-                    logger.info(f"JavaScript rendering failed for {url}, trying basic scraping...")
-                    result = await crawler.arun(
-                        url=url,
-                        word_count_threshold=20,
-                        extraction_strategy="NoExtractionStrategy",
-                        bypass_cache=True
-                    )
                 
                 if result.success and result.cleaned_html:
                     content = self._extract_specialized_content(
